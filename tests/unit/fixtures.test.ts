@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { freshDb, teardown } from '../helpers.js';
 import { seedScenario, SCENARIOS } from '../../src/scripts/fixtures.js';
-import { getDb } from '../../src/lib/db.js';
+
 import { ACTION_COMMITMENT_TYPES, PRICE_ACCEPTANCE_TYPES } from '../../src/lib/contracts.js';
 
 afterEach(async () => { await teardown(); });
