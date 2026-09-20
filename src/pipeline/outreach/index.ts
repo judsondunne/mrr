@@ -36,42 +36,49 @@ export interface InboundResult {
 }
 
 /** Builds campaign + landing copy + drafts batch-1 messages. */
-export declare function prepareCampaigns(limit: number): Promise<PrepareResult[]>;
+export { prepareCampaigns } from './campaign.js';
 
 /** Sends messages that are due, honouring every batch/budget/window rule. */
-export declare function sendDueMessages(): Promise<SendResult[]>;
+export { sendDueMessages } from './send.js';
 
 /** Queues follow-ups for prospects that are eligible. Max 2, ever. */
-export declare function scheduleFollowups(): Promise<{ queued: number }>;
+export { scheduleFollowups } from './followups.js';
 
 /**
  * Handles a Resend delivery-event webhook.
  * `rawBody` is the exact unparsed request body — required for signature verification.
  */
-export declare function handleDeliveryWebhook(
-  rawBody: string,
-  headers: Record<string, string>,
-): Promise<WebhookResult>;
+export { handleDeliveryWebhook, handleInboundWebhook } from './webhooks.js';
 
-/** Handles a Resend inbound-email webhook (a prospect replying). */
-export declare function handleInboundWebhook(
-  rawBody: string,
-  headers: Record<string, string>,
-): Promise<InboundResult>;
+/**
+ * Adds an address/domain to the suppression list. Idempotent.
+ * True when this address or its domain must never be emailed.
+ */
+export { suppress, isSuppressed } from './suppression.js';
 
-/** Adds an address/domain to the suppression list. Idempotent. */
-export declare function suppress(params: {
-  email?: string;
-  domain?: string;
-  reason: string;
-  notes?: string;
-}): Promise<void>;
+/**
+ * Verifies a signed unsubscribe token and suppresses. Used by the web route.
+ * buildUnsubscribeUrl builds the signed one-click link for an outbound message.
+ */
+export {
+  processUnsubscribe,
+  buildUnsubscribeUrl,
+  UNSUBSCRIBE_PATH,
+  UNSUBSCRIBE_TOKEN_PARAM,
+} from './unsubscribe.js';
 
-/** True when this address or its domain must never be emailed. */
-export declare function isSuppressed(email: string): Promise<boolean>;
+// --- secondary surface used by the web/admin layers --------------------------
 
-/** Verifies a signed unsubscribe token and suppresses. Used by the web route. */
-export declare function processUnsubscribe(token: string): Promise<{ ok: boolean; email: string | null }>;
+/** Landing-page copy contract, so the web layer renders validated content. */
+export { LandingCopy, loadOffer, landingUrlFor, type OfferContext } from './offer.js';
 
-/** Builds the signed one-click unsubscribe URL for an outbound message. */
-export declare function buildUnsubscribeUrl(email: string): string;
+/** Campaign health, exported so the dashboard can show why a campaign halted. */
+export { checkCampaignHealth, type HealthVerdict } from './health.js';
+
+/** Sending-window helpers, exported for /setup-check and the dashboard. */
+export { isWithinSendingWindow, sendingWindowStatus, type WindowStatus } from './window.js';
+
+/** Commitment writing, shared with the landing-page signup route. */
+export { recordCommitments } from './classify.js';
+
+export { ComplianceError, ReplySafetyError, WebhookVerificationError } from './errors.js';
