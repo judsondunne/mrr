@@ -59,6 +59,7 @@ export async function runJobSafely(job: string, fn: JobFn): Promise<JobRunSummar
     let records = 0;
     let error: string | null = null;
     let detail: Record<string, unknown> = {};
+    let budgetError: BudgetExceededError | null = null;
 
     try {
       const result = await fn();
@@ -69,8 +70,8 @@ export async function runJobSafely(job: string, fn: JobFn): Promise<JobRunSummar
         status = 'HALTED_BUDGET';
         error = err.message;
         detail = { budgetKind: err.budgetKind, spent: err.spent, limit: err.limit };
+        budgetError = err;
         logger.error('job halted: budget exceeded', { job, ...detail });
-        await alertBudget(err);
       } else if (err instanceof SafetyError) {
         status = 'SKIPPED';
         error = err.message;
@@ -94,7 +95,10 @@ export async function runJobSafely(job: string, fn: JobFn): Promise<JobRunSummar
       [runId, durationMs, records, cost, status, error, JSON.stringify(detail)],
     );
 
-    if (status === 'FAILED') await maybeAlertRepeatedFailure(job);
+    // Notifications happen only after the job_runs row is durable, and can
+    // never propagate: a broken notifier must not also lose the job result.
+    if (budgetError) await safely(() => alertBudget(budgetError), 'budget alert');
+    if (status === 'FAILED') await safely(() => maybeAlertRepeatedFailure(job), 'failure alert');
 
     logger.info('job finished', { job, status, durationMs, records, cost });
     return { job, status, durationMs, recordsProcessed: records, cost, error } satisfies JobRunSummary;
@@ -105,6 +109,19 @@ export async function runJobSafely(job: string, fn: JobFn): Promise<JobRunSummar
     return { job, status: 'SKIPPED', durationMs: 0, recordsProcessed: 0, cost: 0, error: 'LOCKED' };
   }
   return outcome.result;
+}
+
+/**
+ * Runs a notification side-effect that must never affect the job's outcome.
+ * Catches synchronous throws as well as rejections — a missing or broken
+ * notifier module used to take the whole runner down with it.
+ */
+async function safely(fn: () => Promise<unknown>, what: string): Promise<void> {
+  try {
+    await fn();
+  } catch (err) {
+    logger.error(`${what} failed`, errorToFields(err));
+  }
 }
 
 async function totalCostSince(since: Date): Promise<number> {
@@ -141,7 +158,7 @@ async function maybeAlertRepeatedFailure(job: string): Promise<void> {
       `No further alerts for this job will be sent today.`,
     dedupeKey: `JOB_FAILURE:${job}:${day}`,
     detail: { job },
-  }).catch((err) => logger.error('failed to send job failure alert', errorToFields(err)));
+  });
 }
 
 async function alertBudget(err: BudgetExceededError): Promise<void> {
@@ -157,5 +174,5 @@ async function alertBudget(err: BudgetExceededError): Promise<void> {
       `Otherwise the jobs resume automatically at the start of the next period.`,
     dedupeKey: `COST_LIMIT:${err.budgetKind}:${period}`,
     detail: { budgetKind: err.budgetKind, spent: err.spent, limit: err.limit },
-  }).catch((e) => logger.error('failed to send budget alert', errorToFields(e)));
+  });
 }

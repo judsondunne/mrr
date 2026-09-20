@@ -13,6 +13,28 @@ import { setEmailProvider, MockEmailProvider } from '../src/lib/email/index.js';
 import { newId } from '../src/lib/hash.js';
 import type { Db } from '../src/lib/db.js';
 
+/**
+ * Env vars any test is allowed to override. Cleared before each freshDb() so
+ * one test's override cannot silently change another test's meaning.
+ */
+const RESETTABLE_ENV = [
+  'AUTONOMY_ENABLED', 'OUTREACH_ENABLED', 'KILL_SWITCH', 'EXTREME_VALIDATION',
+  'ENABLE_PAYMENT_METHOD_VALIDATION',
+  'MONTHLY_LLM_BUDGET_USD', 'MONTHLY_SEARCH_BUDGET_USD',
+  'MAX_EMAILS_PER_DAY', 'MAX_NEW_CAMPAIGNS_PER_WEEK',
+  'MIN_UNIQUE_STRONG_COMMITMENTS', 'MIN_UNIQUE_PRICE_ACCEPTANCES',
+  'MIN_UNIQUE_ACTION_COMMITMENTS', 'MIN_DELIVERED_BEFORE_STANDARD_EVALUATION',
+  'MIN_QUALIFIED_PROSPECTS_FOR_GATE', 'MIN_POSITIVE_INTENT_RATE',
+  'MIN_QUALIFIED_PROSPECTS', 'MAX_MVP_BUILD_DAYS',
+  'REQUIRED_CATEGORY_EVIDENCE_CONFIDENCE',
+  'INITIAL_EMAIL_BATCH', 'SECOND_EMAIL_BATCH', 'MAX_EMAILS_PER_CAMPAIGN', 'MAX_FOLLOWUPS',
+  'SENDING_WINDOW_START_HOUR', 'SENDING_WINDOW_END_HOUR', 'SENDING_WEEKDAYS_ONLY',
+  'ALLOWED_OUTREACH_COUNTRIES', 'PUBLIC_BASE_URL', 'UNSUBSCRIBE_SECRET',
+  'ADMIN_TOKEN', 'CRON_SECRET', 'SENDER_EMAIL', 'SENDER_COMPANY',
+  'SENDER_POSTAL_ADDRESS', 'SENDING_DOMAIN', 'OWNER_NAME', 'OWNER_NOTIFICATION_EMAIL',
+  'RESEND_API_KEY', 'RESEND_WEBHOOK_SECRET', 'RESEND_INBOUND_WEBHOOK_SECRET',
+] as const;
+
 export interface TestContext {
   db: Db;
   llm: MockLlmProvider;
@@ -23,6 +45,11 @@ export interface TestContext {
 export async function freshDb(envOverrides: Record<string, string> = {}): Promise<TestContext> {
   await closeDb().catch(() => undefined);
   setDbForTesting(null);
+
+  // Reset every switch a previous test may have flipped. Without this, an
+  // override such as KILL_SWITCH=true leaks into later tests in the same file
+  // and silently turns their assertions into no-ops.
+  for (const key of RESETTABLE_ENV) delete process.env[key];
 
   process.env.DATABASE_MODE = 'pglite';
   process.env.PGLITE_DATA_DIR = ':memory:';
