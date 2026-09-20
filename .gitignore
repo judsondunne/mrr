@@ -11,3 +11,6 @@ build/
 coverage/
 .vercel
 /validated/
+
+# agent worktrees and local claude state
+.claude/
