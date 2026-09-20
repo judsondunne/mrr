@@ -289,14 +289,37 @@ async function insertReply(
   classification: string,
   body: string,
   intentScore: number,
+  /**
+   * Mirrors what the real reply classifier writes. The gate's
+   * EXPLAINABLE_V1_REQUIREMENTS check reads
+   * `extraction_json->>'requestedFeature'`, so a fixture that omits it is not
+   * a faithful stand-in for a classified reply.
+   */
+  requestedFeature: string | null = null,
 ): Promise<string> {
   const id = newId('msg');
   await db.query(
     `INSERT INTO messages
        (id, campaign_id, prospect_id, direction, sequence_step, subject, body,
-        received_at, status, classification, intent_score)
-     VALUES ($1,$2,$3,'INBOUND',-1,'Re: Quick question',$4, now(), 'RECEIVED',$5,$6)`,
-    [id, campaignId, prospectId, body, classification, intentScore],
+        received_at, status, classification, intent_score, extraction_json)
+     VALUES ($1,$2,$3,'INBOUND',-1,'Re: Quick question',$4, now(), 'RECEIVED',$5,$6,$7)`,
+    [
+      id,
+      campaignId,
+      prospectId,
+      body,
+      classification,
+      intentScore,
+      JSON.stringify({
+        classification,
+        requestedFeature,
+        competitorMentioned: null,
+        priceReaction: classification === 'PRICE_ACCEPTED' ? 'ACCEPTED' : 'NOT_MENTIONED',
+        explicitlyAcceptedPrice: classification === 'PRICE_ACCEPTED',
+        explicitlyWantsAccess: classification !== 'NOT_INTERESTED',
+        intentScore,
+      }),
+    ],
   );
   return id;
 }
@@ -438,11 +461,30 @@ export async function seedScenario(scenario: ScenarioName): Promise<SeededScenar
         ['ONBOARDING_DETAILS', 'Our case packs are 6 and 12 units; tags are wholesale-a and wholesale-b.', 'EMAIL_REPLY'],
         ['TRIAL_REQUEST', 'Happy to trial it on our staging store first.', 'EMAIL_REPLY'],
       ];
+      // What each prospect actually asked for, as the classifier would have
+      // extracted it. This is what the gate uses to prove V1 scope is derived
+      // from customers rather than from our own guess.
+      const requestedFeatures: Array<string | null> = [
+        'minimum order value per customer tag',
+        null,
+        'case-pack multiples enforced at the cart, not just at checkout',
+        'a clear message telling the shopper why checkout is blocked',
+        'different minimums for our two wholesale tiers',
+        'staging-store install before going live',
+      ];
       for (const [i, p] of committing.entries()) {
         const [type, text, source] = evidence[i]!;
         const domain = `demo-wholesaler-${i + 1}.example.com`;
         const replyId = source === 'EMAIL_REPLY'
-          ? await insertReply(db, campaignId, p, type === 'EXPLICIT_PRICE_ACCEPTANCE' ? 'PRICE_ACCEPTED' : 'INTERESTED_STRONG', text, 0.9)
+          ? await insertReply(
+              db,
+              campaignId,
+              p,
+              type === 'EXPLICIT_PRICE_ACCEPTANCE' ? 'PRICE_ACCEPTED' : 'INTERESTED_STRONG',
+              text,
+              0.9,
+              requestedFeatures[i] ?? null,
+            )
           : null;
         await insertCommitment(db, campaignId, p, domain, type, 19, text, source);
         if (replyId) {

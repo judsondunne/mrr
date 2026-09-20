@@ -28,6 +28,7 @@ import {
 } from '../pipeline/outreach/index';
 import { evaluateCampaigns } from '../pipeline/validation/index';
 import { notifyValidatedOpportunities } from '../pipeline/notify/index';
+import { generateBuildSpec } from '../pipeline/buildspec/index';
 
 const logger = createLogger('jobs:registry');
 
@@ -171,8 +172,15 @@ const JOBS: Record<JobName, JobFn> = {
   },
 
   notify_validated_opportunities: async () => {
+    // The owner's email points at validated/<slug>/, so the export has to
+    // exist before the email goes out. Generation is idempotent and reruns
+    // safely, including for an opportunity notified on an earlier run.
+    const specs = await generateBuildSpecsForValidated();
     const res = await notifyValidatedOpportunities();
-    return { recordsProcessed: res.sent };
+    return {
+      recordsProcessed: res.sent,
+      detail: { buildSpecsWritten: specs.length, directories: specs },
+    };
   },
 };
 
@@ -227,6 +235,33 @@ async function cleanupStaleOpportunities(): Promise<JobResult> {
     recordsProcessed: dead.rows.length,
     detail: { staleLocksRemoved: staleLocks.rowCount, expiredSearchCache: staleCache.rowCount },
   };
+}
+
+/**
+ * Writes the hand-off directory for every READY_TO_BUILD opportunity.
+ *
+ * Kept here rather than inside the notifier because it is a side effect on the
+ * filesystem, not part of composing an email — and because it must still run
+ * for an opportunity whose notification was already sent (otherwise a crash
+ * between the two steps would leave the export permanently missing).
+ */
+async function generateBuildSpecsForValidated(): Promise<string[]> {
+  const db = await getDb();
+  const res = await db.query<{ id: string }>(
+    `SELECT id FROM opportunities WHERE state = 'READY_TO_BUILD'`,
+  );
+  const written: string[] = [];
+  for (const row of res.rows) {
+    try {
+      const spec = await generateBuildSpec(row.id);
+      written.push(spec.directory);
+      logger.info('build spec written', { opportunityId: row.id, directory: spec.directory });
+    } catch (err) {
+      // A failed export must not block the notification the owner is waiting for.
+      logger.error('build spec generation failed', { opportunityId: row.id, err: String(err) });
+    }
+  }
+  return written;
 }
 
 /** Runs one job by name, with locking, job_runs recording and error capture. */

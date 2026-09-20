@@ -5,7 +5,7 @@ build/
 .env
 .env.local
 .env*.local
-.pgdata/
+.pgdata*
 *.tsbuildinfo
 .DS_Store
 coverage/

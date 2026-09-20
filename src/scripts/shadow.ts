@@ -70,7 +70,25 @@ async function printFunnel(): Promise<void> {
   console.log('\nOPPORTUNITY FUNNEL');
   console.log('-'.repeat(78));
   if (res.rows.length === 0) {
-    console.log('  (none yet — with mock providers this is expected)');
+    const cfg = getConfig();
+    const mocked = !cfg.anthropicApiKey || !cfg.braveSearchApiKey;
+    console.log('  (empty)');
+    if (mocked) {
+      // Without a real search key there is nothing out there to discover, so
+      // an empty funnel here means "no credentials yet", not "something broke".
+      console.log('');
+      console.log('  This is expected: the mock search provider returns no results, so there');
+      console.log('  is nothing real to discover. The pipeline itself ran fine — every job');
+      console.log('  above reported SUCCESS.');
+      console.log('');
+      console.log('  To see the whole funnel end to end with no credentials:');
+      console.log('      npm run seed');
+      console.log('      npm run job -- evaluate_campaigns');
+      console.log('      npm run dev    # then open /admin/opportunities');
+      console.log('');
+      console.log('  To discover real categories, set BRAVE_SEARCH_API_KEY and');
+      console.log('  ANTHROPIC_API_KEY, then run this again. See SETUP.md.');
+    }
     return;
   }
   for (const r of res.rows) console.log(`  ${r.state.padEnd(30)} ${r.n}`);
