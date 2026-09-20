@@ -137,3 +137,21 @@ Migrations are plain numbered `.sql` files in `migrations/`, applied in order, t
    A) discovery+verification · B) wedge+prospecting · C) outreach ·
    D) validation+notify+buildspec · E) web UI + API routes.
 3. **Integration** (Lead): merge, wire `src/jobs/**`, run full verify, end-to-end shadow run.
+
+## Integration checklist (Lead only)
+
+Run after every agent branch is merged, in this order. Do not report the task
+complete until all of it passes on the integrated tree.
+
+1. `grep -rn "export declare function" src/pipeline/` must return **nothing**.
+   A leftover `declare` compiles fine but produces an empty runtime export, so
+   the job registry would silently import `undefined` and fail at call time.
+2. `npm run typecheck` · `npm run lint` · `npm test` · `npm run build`
+3. `npm run migrate && npm run seed && npm run job -- evaluate_campaigns`
+   — the `strong-validated` fixture must reach `READY_TO_BUILD` and the other
+   three must not.
+4. `npm run shadow` — completes with zero real sends. This is the real
+   end-to-end gate: any remaining stub surfaces here as a runtime error.
+5. `npm run setup-check` — exits non-zero with no credentials (correct), and
+   every line explains its own remediation.
+6. `git status` clean, or remaining diff intentional and named.
