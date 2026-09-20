@@ -18,6 +18,7 @@ import {
   extractEmailCandidates,
   findPublicContact,
   looksLikePerson,
+  preferredRolesForWedge,
 } from '../../src/pipeline/prospecting/contact.js';
 import {
   buildIcpSignals,
@@ -563,5 +564,59 @@ describe('prospectability decision', () => {
 
     const row = await ctx.db.query<{ state: string }>('SELECT state FROM opportunities WHERE id = $1', [oppId]);
     expect(row.rows[0]?.state).toBe('WEDGE_GENERATED');
+  });
+});
+
+// --- wedge-aware contact preference (added at integration) -------------------
+
+describe('role address preference follows the wedge', () => {
+  const PAGE = `
+    <html><body>
+      <h1>Contact us</h1>
+      <p>General questions: <a href="mailto:support@northfield.example.com">support@northfield.example.com</a></p>
+      <p>Wholesale and trade: <a href="mailto:wholesale@northfield.example.com">wholesale@northfield.example.com</a></p>
+    </body></html>`;
+
+  it('prefers wholesale@ over support@ for a wholesale wedge', () => {
+    const preferred = preferredRolesForWedge(
+      'For Shopify wholesalers who only need case-pack quantities, enforce minimum orders.',
+    );
+    expect(preferred).toContain('wholesale');
+
+    const candidates = extractEmailCandidates(
+      PAGE,
+      'https://northfield.example.com/contact',
+      'northfield.example.com',
+      preferred,
+    );
+    const best = [...candidates].sort((a, b) => b.score - a.score)[0];
+    expect(best?.email).toBe('wholesale@northfield.example.com');
+  });
+
+  it('falls back to the generic ordering when the wedge names no role', () => {
+    const preferred = preferredRolesForWedge(
+      'For Shopify stores offering local pickup, enforce per-location pickup windows.',
+    );
+    expect(preferred).not.toContain('wholesale');
+
+    const candidates = extractEmailCandidates(
+      PAGE,
+      'https://northfield.example.com/contact',
+      'northfield.example.com',
+      preferred,
+    );
+    const best = [...candidates].sort((a, b) => b.score - a.score)[0];
+    expect(best?.email).toBe('support@northfield.example.com');
+  });
+
+  it('never treats an over-generic role as wedge-preferred', () => {
+    // Every business page says "support" and "contact"; matching those would
+    // make the preference meaningless.
+    const preferred = preferredRolesForWedge(
+      'Support contact info help for stores that need customer service tooling',
+    );
+    expect(preferred).not.toContain('support');
+    expect(preferred).not.toContain('contact');
+    expect(preferred).not.toContain('info');
   });
 });

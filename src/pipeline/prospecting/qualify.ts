@@ -16,7 +16,7 @@ import { createLogger } from '../../lib/logger.js';
 import { llmComplete } from '../../lib/llm/index.js';
 import { BudgetExceededError } from '../../lib/errors.js';
 import { extractText, looksLikeAuthWall } from './html.js';
-import { findPublicContact, type FetchedPage } from './contact.js';
+import { findPublicContact, preferredRolesForWedge, type FetchedPage } from './contact.js';
 
 const logger = createLogger('prospecting:qualify');
 
@@ -376,6 +376,10 @@ export async function qualifyProspect(params: {
     seedUrls: [],
     prefetched: pages,
     maxPages: options.maxContactPages ?? 3,
+    // A wholesale offer should reach wholesale@, not the support queue.
+    preferredRoles: preferredRolesForWedge(
+      `${wedge.targetCustomer} ${wedge.whoItIsFor} ${wedge.coreWorkflow} ${wedge.statement}`,
+    ),
   });
 
   return finish({

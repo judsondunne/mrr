@@ -21,6 +21,33 @@ import { isSameCompanyDomain, normalizeDomain } from './domain.js';
 
 const logger = createLogger('prospecting:contact');
 
+/**
+ * Role addresses this wedge should prefer, derived from its own text.
+ *
+ * The global order below is a sensible default, but it is wrong for a specific
+ * offer: sending a wholesale pilot to `support@` lands it in a ticket queue
+ * rather than with the person who owns the workflow, and reply rate is this
+ * system's entire measurement instrument. So a role whose name actually
+ * appears in the wedge outranks the generic order.
+ */
+export function preferredRolesForWedge(wedgeText: string): string[] {
+  const haystack = wedgeText.toLowerCase();
+  return ROLE_LOCALPARTS.filter((role) => {
+    if (GENERIC_ROLES.has(role)) return false;
+    return new RegExp(`\\b${role.replace(/[-]/g, '[- ]?')}`, 'i').test(haystack);
+  });
+}
+
+/**
+ * Roles too generic to ever be "preferred" by keyword match — every business
+ * page mentions support and contact, so matching them would be noise.
+ */
+const GENERIC_ROLES: ReadonlySet<string> = new Set([
+  'hello', 'support', 'info', 'contact', 'help', 'team', 'office',
+  'mail', 'general', 'care', 'hi', 'ask', 'admin', 'service',
+  'customerservice', 'customer-service', 'customercare',
+]);
+
 /** Preferred published role addresses, best first. */
 export const ROLE_LOCALPARTS: readonly string[] = [
   'hello',
@@ -342,6 +369,7 @@ export function extractEmailCandidates(
   html: string,
   pageUrl: string,
   prospectDomain: string,
+  preferredRoles: readonly string[] = [],
 ): EmailCandidate[] {
   const mailtos = new Set(extractMailtoAddresses(html));
   const text = `${extractText(html)} ${[...mailtos].join(' ')}`;
@@ -358,6 +386,8 @@ export function extractEmailCandidates(
     const rolePriority = ROLE_LOCALPARTS.indexOf(verdict.localPart);
     let score = 40;
     if (verdict.isRole) score += 60 - Math.min(rolePriority, 30);
+    // A role this wedge explicitly names beats the generic ordering.
+    if (verdict.isRole && preferredRoles.includes(verdict.localPart)) score += 45;
     if (verdict.sameDomain) score += 30;
     if (mailtos.has(email)) score += 15;
     if (verdict.isFreemail) score -= 25;
@@ -508,6 +538,8 @@ export async function findPublicContact(params: {
   maxPages?: number;
   /** Pages already fetched by the caller, reused instead of re-fetching. */
   prefetched?: readonly FetchedPage[];
+  /** Role localparts this offer should favour; see preferredRolesForWedge. */
+  preferredRoles?: readonly string[];
 }): Promise<ContactFinding | null> {
   const { domain } = params;
   const maxPages = params.maxPages ?? DEFAULT_MAX_CONTACT_PAGES;
@@ -560,7 +592,9 @@ export async function findPublicContact(params: {
 
   const candidates: EmailCandidate[] = [];
   for (const page of pages) {
-    candidates.push(...extractEmailCandidates(page.html, page.url, domain));
+    candidates.push(
+      ...extractEmailCandidates(page.html, page.url, domain, params.preferredRoles ?? []),
+    );
   }
   candidates.sort((a, b) => (b.score === a.score ? a.email.localeCompare(b.email) : b.score - a.score));
 
