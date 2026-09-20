@@ -1,0 +1,72 @@
+# Scheduled runner for MRR Validator.
+#
+# GitHub Actions is the cheapest reliable scheduler for an MVP: free for public
+# repos and generous for private ones. It calls the deployed /api/cron endpoint
+# rather than running the pipeline itself, so there is exactly one code path and
+# one database connection story.
+#
+# Required repository secrets:
+#   APP_BASE_URL  - e.g. https://mrr.yourdomain.com  (no trailing slash)
+#   CRON_SECRET   - must match the deployment's CRON_SECRET
+name: scheduler
+
+on:
+  schedule:
+    # Research pipeline, once daily at 12:10 UTC.
+    - cron: '10 12 * * *'
+    # Send/reply/evaluate loop, hourly during a wide window; the app itself
+    # enforces the real per-prospect sending window and the daily cap.
+    - cron: '25 13-21 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      job:
+        description: 'Single job name to run (blank = full pipeline)'
+        required: false
+        default: ''
+
+concurrency:
+  group: mrr-scheduler
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Select jobs for this trigger
+        id: plan
+        run: |
+          if [ -n "${{ github.event.inputs.job }}" ]; then
+            echo "jobs=${{ github.event.inputs.job }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "10 12 * * *" ]; then
+            echo "jobs=discover_opportunities,verify_categories,generate_wedges,discover_prospects,qualify_prospects,prepare_campaigns,recalculate_costs,cleanup_stale_opportunities" >> "$GITHUB_OUTPUT"
+          else
+            echo "jobs=send_due_messages,schedule_followups,evaluate_campaigns,notify_validated_opportunities" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Trigger jobs
+        env:
+          BASE_URL: ${{ secrets.APP_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BASE_URL:-}" ] || [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::APP_BASE_URL and CRON_SECRET repository secrets are required."
+            exit 1
+          fi
+          failed=0
+          IFS=',' read -ra JOBS <<< "${{ steps.plan.outputs.jobs }}"
+          for job in "${JOBS[@]}"; do
+            echo "--- $job"
+            code=$(curl -sS -o /tmp/out.json -w '%{http_code}' \
+              -X POST "${BASE_URL}/api/cron?job=${job}" \
+              -H "Authorization: Bearer ${CRON_SECRET}" \
+              --max-time 600 --retry 2 --retry-delay 10 --retry-connrefused) || code=000
+            cat /tmp/out.json || true
+            echo
+            if [ "$code" != "200" ]; then
+              echo "::warning::job ${job} returned HTTP ${code}"
+              failed=1
+            fi
+          done
+          exit $failed
