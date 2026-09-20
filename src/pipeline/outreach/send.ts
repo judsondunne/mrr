@@ -508,6 +508,51 @@ export async function sendDueMessages(): Promise<SendResult[]> {
 }
 
 /**
+ * Sends auto-reply drafts that could not go out at the moment they were
+ * written — shadow mode, outside the sending window, or the daily cap was
+ * already reached.
+ *
+ * Auto-replies are deliberately excluded from `sendDueMessages`, because an
+ * answer to someone who wrote to US is not cold outreach and must not consume
+ * a campaign's batch quota. That left them with nothing to flush them, so a
+ * reply drafted at 6pm would simply never be sent. This closes that gap while
+ * keeping them off the campaign budget; every other rule (window, daily cap,
+ * suppression, shadow mode) is still enforced by sendDraftedMessageNow.
+ */
+export async function flushPendingAutoReplies(limit = 25): Promise<{
+  attempted: number;
+  sent: number;
+  skipped: number;
+}> {
+  const cfg = getConfig();
+  if (cfg.killSwitch || isShadowMode(cfg)) return { attempted: 0, sent: 0, skipped: 0 };
+
+  const rows = await many<{ id: string }>(
+    `SELECT id FROM messages
+      WHERE direction = 'OUTBOUND'
+        AND status = 'DRAFTED'
+        AND sequence_step < 0
+      ORDER BY created_at ASC
+      LIMIT $1`,
+    [limit],
+  );
+
+  let sent = 0;
+  let skipped = 0;
+  for (const row of rows) {
+    const outcome = await sendDraftedMessageNow(row.id);
+    if (outcome.sent) {
+      sent += 1;
+    } else {
+      skipped += 1;
+      // A cap or closed window is not an error — the next run picks it up.
+      if (outcome.reason === 'DAILY_CAP_REACHED' || outcome.reason === 'EMAIL_DAILY_BUDGET') break;
+    }
+  }
+  return { attempted: rows.length, sent, skipped };
+}
+
+/**
  * Sends a single already-drafted message (used by the auto-reply path).
  * Subject to the identical rules: window, daily cap, suppression, shadow mode.
  */

@@ -39,7 +39,7 @@ export interface InboundResult {
 export { prepareCampaigns } from './campaign.js';
 
 /** Sends messages that are due, honouring every batch/budget/window rule. */
-export { sendDueMessages } from './send.js';
+export { sendDueMessages, flushPendingAutoReplies } from './send.js';
 
 /** Queues follow-ups for prospects that are eligible. Max 2, ever. */
 export { scheduleFollowups } from './followups.js';

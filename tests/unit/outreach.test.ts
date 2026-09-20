@@ -12,7 +12,11 @@ import { resetConfigCache, getConfig } from '../../src/lib/config.js';
 import { newId } from '../../src/lib/hash.js';
 import type { Db } from '../../src/lib/db.js';
 import { prepareCampaigns } from '../../src/pipeline/outreach/campaign.js';
-import { sendDueMessages, cumulativeTargetForState } from '../../src/pipeline/outreach/send.js';
+import {
+  sendDueMessages,
+  cumulativeTargetForState,
+  flushPendingAutoReplies,
+} from '../../src/pipeline/outreach/send.js';
 import { scheduleFollowups, MAX_SEQUENCE_FOLLOWUPS } from '../../src/pipeline/outreach/followups.js';
 import { sendingWindowStatus } from '../../src/pipeline/outreach/window.js';
 import {
@@ -21,6 +25,7 @@ import {
   buildSubject,
   withHeaders,
   assembleInitialBody,
+  buildFooter,
 } from '../../src/pipeline/outreach/compose.js';
 import { buildLandingCopy, landingUrlFor } from '../../src/pipeline/outreach/offer.js';
 import type { Wedge } from '../../src/lib/contracts.js';
@@ -457,5 +462,101 @@ describe('scheduleFollowups', () => {
     await seedDelivered(ctx, 10);
     await ctx.db.query(`UPDATE prospects SET status = 'SUPPRESSED', suppressed_at = now()`);
     expect(await scheduleFollowups()).toEqual({ queued: 0 });
+  });
+});
+
+// --- auto-reply flush (added at integration) ---------------------------------
+
+describe('pending auto-replies are eventually flushed', () => {
+  /**
+   * Builds the draft through the real footer builder rather than hand-writing
+   * a body — a hand-written one is (correctly) refused by the compliance gate
+   * for missing the sender identity and unsubscribe link.
+   */
+  async function draftAutoReply(db: Db, campaignId: string, prospectId: string, key: string) {
+    const id = `msg_auto_${key}`;
+    const row = await db.query<{ contact_email: string }>(
+      'SELECT contact_email FROM prospects WHERE id = $1',
+      [prospectId],
+    );
+    const to = row.rows[0]!.contact_email;
+    const body =
+      'Great — we are validating the first pilot at $19/month.\n' +
+      'If you would like one of the first installs, reserve it here:\n' +
+      'https://validator.example/v/slug\n' +
+      buildFooter(to, getConfig(), null);
+    await db.query(
+      `INSERT INTO messages
+         (id, campaign_id, prospect_id, direction, sequence_step, subject, body,
+          status, idempotency_key, thread_id)
+       VALUES ($1,$2,$3,'OUTBOUND',-1,'Minimum Order Rules',$4,'DRAFTED',$5,$6)`,
+      [id, campaignId, prospectId, body, key, id],
+    );
+    return id;
+  }
+
+  /** A campaign whose batch quota is already used up, so only the auto-reply is eligible. */
+  async function seedRepliedProspect(db: Db) {
+    const oppId = await seedOpportunity(db, 'VALIDATING');
+    const [prospectId] = await seedProspects(db, oppId, 1);
+    const campaignId = newId('cmp');
+    await db.query(
+      `INSERT INTO campaigns (id, opportunity_id, state, offer_name, price_monthly,
+                              landing_slug, target_count, started_at)
+       VALUES ($1,$2,'COMPLETE','Minimum Order Rules',19,$3,150, now())`,
+      [campaignId, oppId, `slug-${campaignId}`],
+    );
+    await db.query(`UPDATE prospects SET status = 'REPLIED' WHERE id = $1`, [prospectId]);
+    return { campaignId, prospectId: prospectId as string };
+  }
+
+  it('sends an auto-reply that sendDueMessages deliberately ignores', async () => {
+    const ctx = await freshDb(env());
+    const { campaignId, prospectId } = await seedRepliedProspect(ctx.db);
+    await draftAutoReply(ctx.db, campaignId, prospectId, 'k1');
+
+    // Campaign is COMPLETE, and step < 0 is filtered out regardless.
+    await sendDueMessages();
+    expect(ctx.email.sent).toHaveLength(0);
+
+    const res = await flushPendingAutoReplies();
+    expect(res.sent).toBe(1);
+    expect(ctx.email.sent).toHaveLength(1);
+  });
+
+  it('is idempotent — a flushed reply is never sent twice', async () => {
+    const ctx = await freshDb(env());
+    const { campaignId, prospectId } = await seedRepliedProspect(ctx.db);
+    await draftAutoReply(ctx.db, campaignId, prospectId, 'k2');
+
+    await flushPendingAutoReplies();
+    await flushPendingAutoReplies();
+    expect(ctx.email.sent).toHaveLength(1);
+  });
+
+  it('sends nothing in shadow mode', async () => {
+    const ctx = await freshDb(env({ AUTONOMY_ENABLED: 'false', OUTREACH_ENABLED: 'false' }));
+    const { campaignId, prospectId } = await seedRepliedProspect(ctx.db);
+    await draftAutoReply(ctx.db, campaignId, prospectId, 'k3');
+
+    const res = await flushPendingAutoReplies();
+    expect(res.sent).toBe(0);
+    expect(ctx.email.sent).toHaveLength(0);
+  });
+
+  it('respects the daily cap and leaves the rest for the next run', async () => {
+    const ctx = await freshDb(env({ MAX_EMAILS_PER_DAY: '1' }));
+    const { campaignId, prospectId } = await seedRepliedProspect(ctx.db);
+    await draftAutoReply(ctx.db, campaignId, prospectId, 'k4');
+    await draftAutoReply(ctx.db, campaignId, prospectId, 'k5');
+
+    const res = await flushPendingAutoReplies();
+    expect(res.sent).toBe(1);
+    expect(ctx.email.sent).toHaveLength(1);
+
+    const stillDrafted = await ctx.db.query<{ n: string }>(
+      `SELECT COUNT(*) AS n FROM messages WHERE status = 'DRAFTED' AND sequence_step < 0`,
+    );
+    expect(Number(stillDrafted.rows[0]?.n)).toBe(1);
   });
 });

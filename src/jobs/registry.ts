@@ -20,7 +20,12 @@ import { discoverOpportunities } from '../pipeline/discovery/index.js';
 import { verifyCategories } from '../pipeline/verification/index.js';
 import { generateWedges } from '../pipeline/wedge/index.js';
 import { discoverProspects, qualifyProspects } from '../pipeline/prospecting/index.js';
-import { prepareCampaigns, sendDueMessages, scheduleFollowups } from '../pipeline/outreach/index.js';
+import {
+  prepareCampaigns,
+  sendDueMessages,
+  scheduleFollowups,
+  flushPendingAutoReplies,
+} from '../pipeline/outreach/index.js';
 import { evaluateCampaigns } from '../pipeline/validation/index.js';
 import { notifyValidatedOpportunities } from '../pipeline/notify/index.js';
 
@@ -127,12 +132,18 @@ const JOBS: Record<JobName, JobFn> = {
   send_due_messages: async () => {
     requireOutreach('send_due_messages');
     const results = await sendDueMessages();
+    // Auto-replies are kept off the campaign batch quota (answering someone
+    // who wrote to us is not cold outreach), so they need flushing here or a
+    // reply drafted outside the sending window would never go out at all.
+    const autoReplies = await flushPendingAutoReplies();
     return {
-      recordsProcessed: results.reduce((n, r) => n + r.sent, 0),
+      recordsProcessed: results.reduce((n, r) => n + r.sent, 0) + autoReplies.sent,
       detail: {
         campaigns: results.length,
         failed: results.reduce((n, r) => n + r.failed, 0),
         halted: results.filter((r) => r.haltedReason !== null).map((r) => r.haltedReason),
+        autoRepliesSent: autoReplies.sent,
+        autoRepliesPending: autoReplies.skipped,
       },
     };
   },
