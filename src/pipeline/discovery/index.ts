@@ -10,7 +10,6 @@ import { createLogger } from '../../lib/logger.js';
 import { recordAudit } from '../../lib/audit.js';
 import type {
   DiscoveredCandidate,
-  EvidenceExtractor,
   ExtractedCompetitor,
   ExtractedReview,
   MarketplaceAdapter,
@@ -143,24 +142,6 @@ async function upsertCompetitor(
   return res.rows[0]?.id ?? null;
 }
 
-/**
- * `EvidenceExtractor.extractCompetitor` is pinned to one argument by
- * `contracts.ts`, but an adapter may accept an optional context so its source
- * documents can be linked to the opportunity. Passing an extra argument to an
- * implementation that ignores it is harmless, so this is the one place we
- * widen the signature — deliberately, and in a single spot.
- */
-type ContextualExtract = (url: string, ctx?: ExtractContext) => Promise<ExtractedCompetitor | null>;
-
-function extractWithContext(
-  extractor: EvidenceExtractor,
-  url: string,
-  ctx: ExtractContext,
-): Promise<ExtractedCompetitor | null> {
-  const fn = extractor.extractCompetitor.bind(extractor) as ContextualExtract;
-  return fn(url, ctx);
-}
-
 async function insertReviews(competitorId: string, reviews: ExtractedReview[]): Promise<number> {
   if (reviews.length === 0) return 0;
   const db = await getDb();
@@ -286,7 +267,7 @@ export async function discoverOpportunities(limit: number): Promise<DiscoverResu
       for (const url of candidate.competitorUrls) {
         let extracted: ExtractedCompetitor | null;
         try {
-          extracted = await extractWithContext(adapter.extractor, url, ctx);
+          extracted = await adapter.extractor.extractCompetitor(url, ctx);
         } catch (err) {
           // Deliberate asymmetry: a spent SEARCH budget just ends the pass
           // early (nothing was lost), but a spent LLM budget propagates so the

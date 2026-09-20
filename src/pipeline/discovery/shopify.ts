@@ -20,6 +20,7 @@ import { search } from '../../lib/search/index.js';
 import type {
   DiscoveredCandidate,
   EvidenceExtractor,
+  ExtractContext,
   ExtractedCompetitor,
   MarketplaceAdapter,
   OpportunitySource,
@@ -235,9 +236,8 @@ export function reviewsUrl(listingUrl: string): string {
 
 // --- fetch + persist ---------------------------------------------------------
 
-export interface ExtractContext {
-  opportunityId?: string | null;
-}
+// Defined once in contracts.ts so every ecosystem adapter shares one shape.
+export type { ExtractContext } from '../../lib/contracts.js';
 
 interface FetchedPage {
   url: string;

@@ -279,10 +279,18 @@ export interface ExtractedReview {
   complaintTags: string[];
 }
 
+/**
+ * Optional context passed to an extractor so the source documents it fetches
+ * can be linked to the opportunity that triggered the fetch.
+ */
+export interface ExtractContext {
+  opportunityId?: string | null;
+}
+
 /** Implement one per marketplace. */
 export interface EvidenceExtractor {
   readonly ecosystem: string;
-  extractCompetitor(url: string): Promise<ExtractedCompetitor | null>;
+  extractCompetitor(url: string, ctx?: ExtractContext): Promise<ExtractedCompetitor | null>;
 }
 
 export interface ProspectCandidate {
