@@ -13,16 +13,16 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtemp, rm, readFile, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { freshDb, teardown, insertOpportunity, insertCampaign, insertCommitment } from '../helpers.js';
-import type { Db } from '../../src/lib/db.js';
-import { newId } from '../../src/lib/hash.js';
-import { transitionOpportunity } from '../../src/lib/audit.js';
-import { evaluateCampaigns } from '../../src/pipeline/validation/evaluate.js';
-import { evaluateGate } from '../../src/pipeline/validation/gate.js';
-import { getCampaignCounts } from '../../src/pipeline/validation/counts.js';
-import { notifyValidatedOpportunities } from '../../src/pipeline/notify/index.js';
-import { findClaimLanguage } from '../../src/pipeline/notify/claims.js';
-import { generateBuildSpec, MVP_SECTIONS, SPEC_FILES } from '../../src/pipeline/buildspec/index.js';
+import { freshDb, teardown, insertOpportunity, insertCampaign, insertCommitment } from '../helpers';
+import type { Db } from '../../src/lib/db';
+import { newId } from '../../src/lib/hash';
+import { transitionOpportunity } from '../../src/lib/audit';
+import { evaluateCampaigns } from '../../src/pipeline/validation/evaluate';
+import { evaluateGate } from '../../src/pipeline/validation/gate';
+import { getCampaignCounts } from '../../src/pipeline/validation/counts';
+import { notifyValidatedOpportunities } from '../../src/pipeline/notify/index';
+import { findClaimLanguage } from '../../src/pipeline/notify/claims';
+import { generateBuildSpec, MVP_SECTIONS, SPEC_FILES } from '../../src/pipeline/buildspec/index';
 
 let outputDir: string | null = null;
 

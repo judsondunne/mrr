@@ -12,9 +12,9 @@
  * ever interpolates a value into SQL text.
  */
 import type { PGlite } from '@electric-sql/pglite';
-import { getConfig } from './config.js';
-import { AppError } from './errors.js';
-import { createLogger } from './logger.js';
+import { getConfig } from './config';
+import { AppError } from './errors';
+import { createLogger } from './logger';
 
 const logger = createLogger('db');
 

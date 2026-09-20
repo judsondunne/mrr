@@ -1,5 +1,16 @@
 /**
- * Campaign send health.
+ * Campaign send health — the SINGLE definition of "is this campaign damaging
+ * inboxes?".
+ *
+ * It lives in lib/ rather than in a pipeline layer because two layers need it
+ * and they must never disagree: the outreach layer gates batch progression on
+ * it, and the validation layer kills a campaign early on it. They previously
+ * had separate implementations that divided by different denominators and used
+ * different boundary operators, so a borderline campaign could be halted by one
+ * and passed by the other.
+ *
+ * Semantics here follow the spec literally: "hard bounce rate < 5%" means >= 5%
+ * is unhealthy.
  *
  * Batch 1 (25) is a probe. We only earn the right to send batch 2 (50), and
  * then the rest (up to 150), by proving the previous batch did not damage
@@ -7,8 +18,8 @@
  *
  * Deterministic SQL only. No model, no score, no judgement call.
  */
-import { getConfig } from '../../lib/config.js';
-import { one, toNumber } from '../../lib/db.js';
+import { getConfig } from './config';
+import { one, toNumber } from './db';
 
 export interface HealthVerdict {
   healthy: boolean;
@@ -87,20 +98,39 @@ export async function checkCampaignHealth(campaignId: string): Promise<HealthVer
   // would deadlock the campaign.
   if (sent === 0) return verdict;
 
+  // Collect every breach rather than returning on the first: the operator
+  // reading a halted campaign wants the whole picture, not one symptom.
+  const reasons: string[] = [];
   if (hardBounceRate >= cfg.health.maxHardBounceRate) {
-    return { ...verdict, healthy: false, reason: `HARD_BOUNCE_RATE ${pct(hardBounceRate)} >= ${pct(cfg.health.maxHardBounceRate)}` };
+    reasons.push(
+      `hard bounce rate ${pct(hardBounceRate)} (${hardBounced}/${sent}) reaches the ${pct(cfg.health.maxHardBounceRate)} ceiling`,
+    );
   }
   if (complaintRate > cfg.health.maxComplaintRate) {
-    return { ...verdict, healthy: false, reason: `COMPLAINT_RATE ${pct(complaintRate)} > ${pct(cfg.health.maxComplaintRate)}` };
+    reasons.push(
+      `complaint rate ${pct(complaintRate)} (${complained}/${delivered}) exceeds the ${pct(cfg.health.maxComplaintRate)} ceiling`,
+    );
   }
   if (unsubscribeRate > cfg.health.maxUnsubscribeRate) {
-    return { ...verdict, healthy: false, reason: `UNSUBSCRIBE_RATE ${pct(unsubscribeRate)} > ${pct(cfg.health.maxUnsubscribeRate)}` };
+    reasons.push(
+      `unsubscribe rate ${pct(unsubscribeRate)} (${unsubscribed}/${delivered}) exceeds the ${pct(cfg.health.maxUnsubscribeRate)} ceiling`,
+    );
   }
-  if (infrastructureFailureRate > 0.2) {
-    return { ...verdict, healthy: false, reason: `INFRASTRUCTURE_FAILURES ${pct(infrastructureFailureRate)}` };
+  if (infrastructureFailureRate > MAX_INFRASTRUCTURE_FAILURE_RATE) {
+    reasons.push(
+      `infrastructure failures ${pct(infrastructureFailureRate)} (${infraFailed}/${sent + infraFailed}) exceed the ${pct(MAX_INFRASTRUCTURE_FAILURE_RATE)} ceiling`,
+    );
   }
-  return verdict;
+
+  if (reasons.length === 0) return verdict;
+  return { ...verdict, healthy: false, reason: reasons.join('; ') };
 }
+
+/**
+ * A send failing repeatedly is our problem, not the recipient's. Above this
+ * share of attempts we stop rather than keep hammering the provider.
+ */
+const MAX_INFRASTRUCTURE_FAILURE_RATE = 0.2;
 
 function pct(rate: number): string {
   return `${(rate * 100).toFixed(2)}%`;

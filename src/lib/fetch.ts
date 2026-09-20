@@ -8,9 +8,9 @@
  * - size cap, so one pathological page cannot exhaust memory
  * - NEVER executes scripts; the caller gets inert text/HTML
  */
-import { getConfig } from './config.js';
-import { FetchError } from './errors.js';
-import { createLogger } from './logger.js';
+import { getConfig } from './config';
+import { FetchError } from './errors';
+import { createLogger } from './logger';
 
 const logger = createLogger('fetch');
 

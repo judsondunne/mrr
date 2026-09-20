@@ -11,14 +11,14 @@
  *   - Opens are NEVER counted. Clicks are recorded upstream but never read here,
  *     so they cannot gate anything.
  */
-import { getDb, toNumber } from '../../lib/db.js';
+import { getDb, toNumber } from '../../lib/db';
 import {
   ACTION_COMMITMENT_TYPES,
   MONETARY_COMMITMENT_TYPES,
   PRICE_ACCEPTANCE_TYPES,
   type CommitmentType,
-} from '../../lib/contracts.js';
-import { EMPTY_COUNTS, type CampaignCounts } from './types.js';
+} from '../../lib/contracts';
+import { EMPTY_COUNTS, type CampaignCounts } from './types';
 
 /** Prospect statuses that mean "this business passed ICP qualification". */
 export const QUALIFIED_PROSPECT_STATUSES: readonly string[] = [

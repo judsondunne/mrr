@@ -14,20 +14,20 @@ import {
   insertProspect,
   insertDeliveredMessage,
   insertCommitment,
-} from '../helpers.js';
-import type { Db } from '../../src/lib/db.js';
-import { newId } from '../../src/lib/hash.js';
-import { SafetyError } from '../../src/lib/errors.js';
-import { evaluateCampaigns } from '../../src/pipeline/validation/evaluate.js';
-import * as notify from '../../src/pipeline/notify/index.js';
+} from '../helpers';
+import type { Db } from '../../src/lib/db';
+import { newId } from '../../src/lib/hash';
+import { SafetyError } from '../../src/lib/errors';
+import { evaluateCampaigns } from '../../src/pipeline/validation/evaluate';
+import * as notify from '../../src/pipeline/notify/index';
 import {
   notifyValidatedOpportunities,
   notifyOwner,
   renderReadyToBuildEmail,
   assertNoGuaranteeLanguage,
-} from '../../src/pipeline/notify/index.js';
-import { revenueMathLines, formatMoney } from '../../src/pipeline/notify/render.js';
-import type { MockEmailProvider } from '../../src/lib/email/index.js';
+} from '../../src/pipeline/notify/index';
+import { revenueMathLines, formatMoney } from '../../src/pipeline/notify/render';
+import type { MockEmailProvider } from '../../src/lib/email/index';
 
 afterEach(async () => {
   await teardown();

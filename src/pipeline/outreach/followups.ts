@@ -8,14 +8,14 @@
  * A prospect drops out of the sequence the moment they reply, bounce, commit,
  * complain, or land on the suppression list.
  */
-import { getConfig } from '../../lib/config.js';
-import { many } from '../../lib/db.js';
-import { createLogger } from '../../lib/logger.js';
-import { assertCompliant, composeFollowupMessage } from './compose.js';
-import { ComplianceError } from './errors.js';
-import { idempotencyKeyFor, insertDraftMessage, prospectContextFromRow, type ProspectRow } from './drafts.js';
-import { offerFromRow, type OfferContext } from './offer.js';
-import { isCountryAllowed } from './suppression.js';
+import { getConfig } from '../../lib/config';
+import { many } from '../../lib/db';
+import { createLogger } from '../../lib/logger';
+import { assertCompliant, composeFollowupMessage } from './compose';
+import { ComplianceError } from './errors';
+import { idempotencyKeyFor, insertDraftMessage, prospectContextFromRow, type ProspectRow } from './drafts';
+import { offerFromRow, type OfferContext } from './offer';
+import { isCountryAllowed } from './suppression';
 
 const logger = createLogger('outreach:followups');
 

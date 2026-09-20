@@ -6,16 +6,16 @@
  * inaccessible customers is worthless to this system, so failing that question
  * kills the opportunity instead of quietly continuing.
  */
-import type { RejectionReason, Wedge } from '../../lib/contracts.js';
-import { getConfig } from '../../lib/config.js';
-import { getDb, toNumber } from '../../lib/db.js';
-import { hasBudget } from '../../lib/cost.js';
-import { recordAudit, transitionOpportunity } from '../../lib/audit.js';
-import { createLogger, errorToFields } from '../../lib/logger.js';
-import { BudgetExceededError } from '../../lib/errors.js';
-import { loadWedgeFor } from '../wedge/index.js';
-import { discoverProspectsFor, type DiscoverOutcome } from './discover.js';
-import { buildIcpSignals, qualifyProspect, type ProspectToQualify } from './qualify.js';
+import type { RejectionReason, Wedge } from '../../lib/contracts';
+import { getConfig } from '../../lib/config';
+import { getDb, toNumber } from '../../lib/db';
+import { hasBudget } from '../../lib/cost';
+import { recordAudit, transitionOpportunity } from '../../lib/audit';
+import { createLogger, errorToFields } from '../../lib/logger';
+import { BudgetExceededError } from '../../lib/errors';
+import { loadWedgeFor } from '../wedge/index';
+import { discoverProspectsFor, type DiscoverOutcome } from './discover';
+import { buildIcpSignals, qualifyProspect, type ProspectToQualify } from './qualify';
 
 const logger = createLogger('prospecting');
 
@@ -422,7 +422,7 @@ async function qualifyOne(
   };
 }
 
-export { normalizeDomain, isDisallowedProspectDomain, registrableDomain } from './domain.js';
-export { buildProspectQueries, discoverProspectsFor } from './discover.js';
-export { buildIcpSignals, deterministicIcpCheck, qualifyProspect } from './qualify.js';
-export { findPublicContact, classifyEmail, extractEmailCandidates, detectCountry } from './contact.js';
+export { normalizeDomain, isDisallowedProspectDomain, registrableDomain } from './domain';
+export { buildProspectQueries, discoverProspectsFor } from './discover';
+export { buildIcpSignals, deterministicIcpCheck, qualifyProspect } from './qualify';
+export { findPublicContact, classifyEmail, extractEmailCandidates, detectCountry } from './contact';

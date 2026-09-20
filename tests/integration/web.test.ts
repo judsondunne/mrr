@@ -14,8 +14,8 @@
  * `requireAdminPage`/`isAdminTokenValid` — and those are what is tested.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { freshDb, insertOpportunity, insertProspect, teardown } from '../helpers.js';
-import type { Db } from '../../src/lib/db.js';
+import { freshDb, insertOpportunity, insertProspect, teardown } from '../helpers';
+import type { Db } from '../../src/lib/db';
 
 const pipelineMock = vi.hoisted(() => ({
   processUnsubscribe: vi.fn(),

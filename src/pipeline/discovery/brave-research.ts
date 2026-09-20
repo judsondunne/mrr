@@ -11,12 +11,12 @@
  *     content hash, so unchanged pages are never re-analyzed
  *   - the cleaned text is returned; raw HTML never leaves this module
  */
-import { BudgetExceededError, FetchError } from '../../lib/errors.js';
-import { politeFetch } from '../../lib/fetch.js';
-import { createLogger } from '../../lib/logger.js';
-import { search, type SearchResult } from '../../lib/search/index.js';
-import { htmlToText } from './parse.js';
-import { storeSourceDocument, type SourceType } from './source-documents.js';
+import { BudgetExceededError, FetchError } from '../../lib/errors';
+import { politeFetch } from '../../lib/fetch';
+import { createLogger } from '../../lib/logger';
+import { search, type SearchResult } from '../../lib/search/index';
+import { htmlToText } from './parse';
+import { storeSourceDocument, type SourceType } from './source-documents';
 
 const logger = createLogger('discovery:research');
 

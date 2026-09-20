@@ -10,7 +10,7 @@
  *      function in the codebase that can mint one is the deterministic gate in
  *      src/pipeline/validation/gate.ts. There is no other constructor.
  */
-import { IllegalTransitionError } from './errors.js';
+import { IllegalTransitionError } from './errors';
 
 export const OPPORTUNITY_STATES = [
   'DISCOVERED',

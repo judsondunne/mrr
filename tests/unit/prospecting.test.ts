@@ -1,17 +1,17 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { freshDb, teardown, insertOpportunity } from '../helpers.js';
-import { resetFetchState } from '../../src/lib/fetch.js';
-import { newId } from '../../src/lib/hash.js';
-import type { Db } from '../../src/lib/db.js';
-import type { Wedge } from '../../src/lib/contracts.js';
+import { freshDb, teardown, insertOpportunity } from '../helpers';
+import { resetFetchState } from '../../src/lib/fetch';
+import { newId } from '../../src/lib/hash';
+import type { Db } from '../../src/lib/db';
+import type { Wedge } from '../../src/lib/contracts';
 import {
   normalizeDomain,
   registrableDomain,
   isDisallowedProspectDomain,
   domainToCompanyName,
-} from '../../src/pipeline/prospecting/domain.js';
+} from '../../src/pipeline/prospecting/domain';
 import {
   classifyEmail,
   detectCountry,
@@ -19,19 +19,19 @@ import {
   findPublicContact,
   looksLikePerson,
   preferredRolesForWedge,
-} from '../../src/pipeline/prospecting/contact.js';
+} from '../../src/pipeline/prospecting/contact';
 import {
   buildIcpSignals,
   deterministicIcpCheck,
   qualifyProspect,
-} from '../../src/pipeline/prospecting/qualify.js';
-import { buildProspectQueries, discoverProspectsFor } from '../../src/pipeline/prospecting/discover.js';
+} from '../../src/pipeline/prospecting/qualify';
+import { buildProspectQueries, discoverProspectsFor } from '../../src/pipeline/prospecting/discover';
 import {
   discoverProspects,
   qualifyProspects,
   getProspectCounts,
   rejectionReasonForProspectability,
-} from '../../src/pipeline/prospecting/index.js';
+} from '../../src/pipeline/prospecting/index';
 
 afterEach(async () => {
   vi.unstubAllGlobals();

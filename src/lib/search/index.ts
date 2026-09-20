@@ -2,12 +2,12 @@
  * Web search. Cached aggressively — search is for DISCOVERY, not for every
  * fetch. Once a URL is known, fetch it directly instead of searching again.
  */
-import { getConfig } from '../config.js';
-import { getDb } from '../db.js';
-import { sha256 } from '../hash.js';
-import { createLogger } from '../logger.js';
-import { assertBudget, recordCost } from '../cost.js';
-import { ProviderError } from '../errors.js';
+import { getConfig } from '../config';
+import { getDb } from '../db';
+import { sha256 } from '../hash';
+import { createLogger } from '../logger';
+import { assertBudget, recordCost } from '../cost';
+import { ProviderError } from '../errors';
 
 const logger = createLogger('search');
 

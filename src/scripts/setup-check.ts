@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
-import { runSetupChecks } from '../lib/setup-check.js';
-import { closeDb } from '../lib/db.js';
+import { runSetupChecks } from '../lib/setup-check';
+import { closeDb } from '../lib/db';
 
 async function main(): Promise<void> {
   const report = await runSetupChecks();

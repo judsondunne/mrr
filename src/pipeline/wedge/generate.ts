@@ -8,12 +8,12 @@
  * is still a vague wedge.
  */
 import { z } from 'zod';
-import { getConfig } from '../../lib/config.js';
-import { createLogger } from '../../lib/logger.js';
-import { llmComplete } from '../../lib/llm/index.js';
-import { BudgetExceededError } from '../../lib/errors.js';
-import { Wedge } from '../../lib/contracts.js';
-import type { ComplaintCluster } from './clustering.js';
+import { getConfig } from '../../lib/config';
+import { createLogger } from '../../lib/logger';
+import { llmComplete } from '../../lib/llm/index';
+import { BudgetExceededError } from '../../lib/errors';
+import { Wedge } from '../../lib/contracts';
+import type { ComplaintCluster } from './clustering';
 
 const logger = createLogger('wedge:generate');
 

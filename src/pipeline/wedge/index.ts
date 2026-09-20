@@ -1,13 +1,13 @@
 /**
  * PUBLIC API — WEDGE LAYER. Owned by the wedge/prospecting agent.
  */
-import { Wedge, type RejectionReason } from '../../lib/contracts.js';
-import { getDb } from '../../lib/db.js';
-import { createLogger, errorToFields } from '../../lib/logger.js';
-import { transitionOpportunity } from '../../lib/audit.js';
-import { BudgetExceededError } from '../../lib/errors.js';
-import { clusterComplaints } from './clustering.js';
-import { generateWedge, type WedgeProblem } from './generate.js';
+import { Wedge, type RejectionReason } from '../../lib/contracts';
+import { getDb } from '../../lib/db';
+import { createLogger, errorToFields } from '../../lib/logger';
+import { transitionOpportunity } from '../../lib/audit';
+import { BudgetExceededError } from '../../lib/errors';
+import { clusterComplaints } from './clustering';
+import { generateWedge, type WedgeProblem } from './generate';
 
 const logger = createLogger('wedge');
 
@@ -243,7 +243,7 @@ export async function generateWedges(limit: number): Promise<WedgeResult[]> {
   return out;
 }
 
-export type { ComplaintCluster, ComplaintCode } from './clustering.js';
-export { clusterComplaints, tagComplaintText, COMPLAINT_TAXONOMY } from './clustering.js';
-export { validateWedge, generateWedge } from './generate.js';
-export type { WedgeProblem, WedgeValidation } from './generate.js';
+export type { ComplaintCluster, ComplaintCode } from './clustering';
+export { clusterComplaints, tagComplaintText, COMPLAINT_TAXONOMY } from './clustering';
+export { validateWedge, generateWedge } from './generate';
+export type { WedgeProblem, WedgeValidation } from './generate';

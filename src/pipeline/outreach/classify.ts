@@ -16,16 +16,16 @@
  *   that must also match, so "sounds interesting" can never become proof that
  *   a company will pay. intent_score is advisory metadata and gates nothing.
  */
-import { getDb } from '../../lib/db.js';
-import { newId } from '../../lib/hash.js';
-import { createLogger } from '../../lib/logger.js';
-import { llmComplete } from '../../lib/llm/index.js';
+import { getDb } from '../../lib/db';
+import { newId } from '../../lib/hash';
+import { createLogger } from '../../lib/logger';
+import { llmComplete } from '../../lib/llm/index';
 import {
   ReplyAnalysis,
   type CommitmentInput,
   type CommitmentType,
   type ReplyClassification,
-} from '../../lib/contracts.js';
+} from '../../lib/contracts';
 
 const logger = createLogger('outreach:classify');
 

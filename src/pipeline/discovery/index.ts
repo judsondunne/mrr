@@ -2,21 +2,21 @@
  * PUBLIC API — DISCOVERY LAYER. Owned by the discovery agent.
  * Signatures here are the integration contract; callers depend on them.
  */
-import { getConfig } from '../../lib/config.js';
-import { getDb } from '../../lib/db.js';
-import { BudgetExceededError } from '../../lib/errors.js';
-import { contentHash, newId, slugify } from '../../lib/hash.js';
-import { createLogger } from '../../lib/logger.js';
-import { recordAudit } from '../../lib/audit.js';
+import { getConfig } from '../../lib/config';
+import { getDb } from '../../lib/db';
+import { BudgetExceededError } from '../../lib/errors';
+import { contentHash, newId, slugify } from '../../lib/hash';
+import { createLogger } from '../../lib/logger';
+import { recordAudit } from '../../lib/audit';
 import type {
   DiscoveredCandidate,
   ExtractedCompetitor,
   ExtractedReview,
   MarketplaceAdapter,
-} from '../../lib/contracts.js';
-import { readCompetitorEvidenceJson } from '../verification/evidence.js';
-import { shopifyAdapter, type ExtractContext } from './shopify.js';
-import { linkSourceDocuments } from './source-documents.js';
+} from '../../lib/contracts';
+import { readCompetitorEvidenceJson } from '../verification/evidence';
+import { shopifyAdapter, type ExtractContext } from './shopify';
+import { linkSourceDocuments } from './source-documents';
 
 const logger = createLogger('discovery');
 
@@ -313,10 +313,10 @@ export async function discoverOpportunities(limit: number): Promise<DiscoverResu
 export type { DiscoveredCandidate };
 
 // Re-exported so other layers use the budgeted, cached research path.
-export { research } from './brave-research.js';
-export type { ResearchOptions, ResearchPage, ResearchResult } from './brave-research.js';
-export { storeSourceDocument, isKnownContent, linkSourceDocuments } from './source-documents.js';
-export type { SourceType, StoredSourceDocument } from './source-documents.js';
+export { research } from './brave-research';
+export type { ResearchOptions, ResearchPage, ResearchResult } from './brave-research';
+export { storeSourceDocument, isKnownContent, linkSourceDocuments } from './source-documents';
+export type { SourceType, StoredSourceDocument } from './source-documents';
 export {
   shopifyAdapter,
   ShopifyOpportunitySource,
@@ -325,6 +325,6 @@ export {
   SHOPIFY_SEED_CATEGORIES,
   normalizeListingUrl,
   reviewsUrl,
-} from './shopify.js';
-export type { SeedCategory, ExtractContext } from './shopify.js';
-export { parseAppListing, parseReviews, htmlToText } from './parse.js';
+} from './shopify';
+export type { SeedCategory, ExtractContext } from './shopify';
+export { parseAppListing, parseReviews, htmlToText } from './parse';

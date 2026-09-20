@@ -7,18 +7,18 @@
  * to send outside the window, or to send at all in shadow mode.
  */
 import { describe, it, expect, afterEach } from 'vitest';
-import { freshDb, teardown, insertProspect, type TestContext } from '../helpers.js';
-import { resetConfigCache, getConfig } from '../../src/lib/config.js';
-import { newId } from '../../src/lib/hash.js';
-import type { Db } from '../../src/lib/db.js';
-import { prepareCampaigns } from '../../src/pipeline/outreach/campaign.js';
+import { freshDb, teardown, insertProspect, type TestContext } from '../helpers';
+import { resetConfigCache, getConfig } from '../../src/lib/config';
+import { newId } from '../../src/lib/hash';
+import type { Db } from '../../src/lib/db';
+import { prepareCampaigns } from '../../src/pipeline/outreach/campaign';
 import {
   sendDueMessages,
   cumulativeTargetForState,
   flushPendingAutoReplies,
-} from '../../src/pipeline/outreach/send.js';
-import { scheduleFollowups, MAX_SEQUENCE_FOLLOWUPS } from '../../src/pipeline/outreach/followups.js';
-import { sendingWindowStatus } from '../../src/pipeline/outreach/window.js';
+} from '../../src/pipeline/outreach/send';
+import { scheduleFollowups, MAX_SEQUENCE_FOLLOWUPS } from '../../src/pipeline/outreach/followups';
+import { sendingWindowStatus } from '../../src/pipeline/outreach/window';
 import {
   validateCompliance,
   sanitizeObservation,
@@ -26,9 +26,9 @@ import {
   withHeaders,
   assembleInitialBody,
   buildFooter,
-} from '../../src/pipeline/outreach/compose.js';
-import { buildLandingCopy, landingUrlFor } from '../../src/pipeline/outreach/offer.js';
-import type { Wedge } from '../../src/lib/contracts.js';
+} from '../../src/pipeline/outreach/compose';
+import { buildLandingCopy, landingUrlFor } from '../../src/pipeline/outreach/offer';
+import type { Wedge } from '../../src/lib/contracts';
 
 const ORIGINAL_ENV = { ...process.env };
 

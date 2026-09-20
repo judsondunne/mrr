@@ -7,12 +7,12 @@
  * The owner email and the build spec quote ONLY what comes back from here, so a
  * fabricated quotation is structurally impossible.
  */
-import { getDb, toNumber } from '../../lib/db.js';
+import { getDb, toNumber } from '../../lib/db';
 import {
   ACTION_COMMITMENT_TYPES,
   PRICE_ACCEPTANCE_TYPES,
   type CommitmentType,
-} from '../../lib/contracts.js';
+} from '../../lib/contracts';
 
 export const MAX_QUOTE_CHARS = 220;
 

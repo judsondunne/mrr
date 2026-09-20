@@ -9,14 +9,14 @@
  * it cites is really on the page.
  */
 import { z } from 'zod';
-import type { Wedge } from '../../lib/contracts.js';
-import { getDb } from '../../lib/db.js';
-import { politeFetch } from '../../lib/fetch.js';
-import { createLogger } from '../../lib/logger.js';
-import { llmComplete } from '../../lib/llm/index.js';
-import { BudgetExceededError } from '../../lib/errors.js';
-import { extractText, looksLikeAuthWall } from './html.js';
-import { findPublicContact, preferredRolesForWedge, type FetchedPage } from './contact.js';
+import type { Wedge } from '../../lib/contracts';
+import { getDb } from '../../lib/db';
+import { politeFetch } from '../../lib/fetch';
+import { createLogger } from '../../lib/logger';
+import { llmComplete } from '../../lib/llm/index';
+import { BudgetExceededError } from '../../lib/errors';
+import { extractText, looksLikeAuthWall } from './html';
+import { findPublicContact, preferredRolesForWedge, type FetchedPage } from './contact';
 
 const logger = createLogger('prospecting:qualify');
 

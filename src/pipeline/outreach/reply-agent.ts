@@ -16,12 +16,12 @@
  * nothing is sent.
  */
 import { z } from 'zod';
-import { getConfig, type Config } from '../../lib/config.js';
-import { createLogger } from '../../lib/logger.js';
-import { llmComplete } from '../../lib/llm/index.js';
-import type { ReplyAnalysis, ReplyClassification } from '../../lib/contracts.js';
-import { buildFooter, withHeaders, validateCompliance, type ComposedMessage, type ProspectContext } from './compose.js';
-import { formatPrice, type OfferContext } from './offer.js';
+import { getConfig, type Config } from '../../lib/config';
+import { createLogger } from '../../lib/logger';
+import { llmComplete } from '../../lib/llm/index';
+import type { ReplyAnalysis, ReplyClassification } from '../../lib/contracts';
+import { buildFooter, withHeaders, validateCompliance, type ComposedMessage, type ProspectContext } from './compose';
+import { formatPrice, type OfferContext } from './offer';
 
 const logger = createLogger('outreach:reply-agent');
 

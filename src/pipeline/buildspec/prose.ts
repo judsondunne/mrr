@@ -15,9 +15,9 @@
  * database row, never by this function.
  */
 import { z } from 'zod';
-import { llmComplete } from '../../lib/llm/index.js';
-import { createLogger } from '../../lib/logger.js';
-import { containsClaimLanguage } from '../notify/claims.js';
+import { llmComplete } from '../../lib/llm/index';
+import { createLogger } from '../../lib/logger';
+import { containsClaimLanguage } from '../notify/claims';
 
 const logger = createLogger('buildspec:prose');
 

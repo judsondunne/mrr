@@ -12,31 +12,31 @@
  * evaluateGate() has NO side effects: it never transitions, never writes, never
  * sends. The dashboard calls it on every page load.
  */
-import { getConfig } from '../../lib/config.js';
-import { AppError } from '../../lib/errors.js';
-import { __mintGateToken, type GateToken } from '../../lib/state-machine.js';
+import { getConfig } from '../../lib/config';
+import { AppError } from '../../lib/errors';
+import { __mintGateToken, type GateToken } from '../../lib/state-machine';
 import {
   getCampaignCounts,
   getExtremeValidationCounts,
   getLatestCampaignId,
   getQualifiedProspectCount,
-} from './counts.js';
-import { getFeasibilityBlockers } from './blockers.js';
-import { getCustomerDerivedRequirements } from './evidence.js';
+} from './counts';
+import { getFeasibilityBlockers } from './blockers';
+import { getCustomerDerivedRequirements } from './evidence';
 import {
   loadOpportunity,
   parseWedge,
   resolveBuildDays,
   type OpportunityRow,
   type WedgeFacts,
-} from './opportunity.js';
+} from './opportunity';
 import {
   CHECK_IDS,
   EMPTY_COUNTS,
   type CampaignCounts,
   type GateCheck,
   type GateEvaluation,
-} from './types.js';
+} from './types';
 
 const CONFIDENCE_RANK: Record<string, number> = { NONE: 0, LOW: 1, MEDIUM: 2, HIGH: 3 };
 

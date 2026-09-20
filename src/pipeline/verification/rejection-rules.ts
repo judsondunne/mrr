@@ -13,8 +13,8 @@
  *   PENALTY — "heavily penalize" categories. Each match adds weight; the
  *             subject is rejected once the total reaches REJECT_PENALTY_THRESHOLD.
  */
-import { getConfig } from '../../lib/config.js';
-import type { RejectionReason } from '../../lib/contracts.js';
+import { getConfig } from '../../lib/config';
+import type { RejectionReason } from '../../lib/contracts';
 
 export type RuleStrength = 'HARD' | 'PENALTY';
 

@@ -8,8 +8,8 @@
  * Fails CLOSED: anything we cannot evaluate (bad timezone, weird locale data)
  * means "do not send".
  */
-import { getConfig, type Config } from '../../lib/config.js';
-import { createLogger } from '../../lib/logger.js';
+import { getConfig, type Config } from '../../lib/config';
+import { createLogger } from '../../lib/logger';
 
 const logger = createLogger('outreach:window');
 

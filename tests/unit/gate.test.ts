@@ -16,13 +16,13 @@ import {
   insertProspect,
   insertDeliveredMessage,
   insertCommitment,
-} from '../helpers.js';
-import type { Db } from '../../src/lib/db.js';
-import { newId } from '../../src/lib/hash.js';
-import { evaluateGate, decideGate, collectGateInputs } from '../../src/pipeline/validation/gate.js';
-import { getCampaignCounts } from '../../src/pipeline/validation/counts.js';
-import { recordFeasibilityBlocker } from '../../src/pipeline/validation/blockers.js';
-import { CHECK_IDS, REQUIRED_CHECK_IDS } from '../../src/pipeline/validation/types.js';
+} from '../helpers';
+import type { Db } from '../../src/lib/db';
+import { newId } from '../../src/lib/hash';
+import { evaluateGate, decideGate, collectGateInputs } from '../../src/pipeline/validation/gate';
+import { getCampaignCounts } from '../../src/pipeline/validation/counts';
+import { recordFeasibilityBlocker } from '../../src/pipeline/validation/blockers';
+import { CHECK_IDS, REQUIRED_CHECK_IDS } from '../../src/pipeline/validation/types';
 
 afterEach(async () => {
   await teardown();

@@ -5,7 +5,7 @@
  * something was wrong with it". They are deliberately non-retryable: the fix is
  * always a code or configuration change, never a retry.
  */
-import { AppError } from '../../lib/errors.js';
+import { AppError } from '../../lib/errors';
 
 /** A message failed the code-level compliance validator. It must not be sent. */
 export class ComplianceError extends AppError {

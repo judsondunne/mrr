@@ -9,17 +9,17 @@
  *
  * Rate limited by MAX_NEW_CAMPAIGNS_PER_WEEK via assertBudget('CAMPAIGNS_WEEKLY').
  */
-import { getConfig } from '../../lib/config.js';
-import { getDb, many, one } from '../../lib/db.js';
-import { BudgetExceededError } from '../../lib/errors.js';
-import { newId, slugify } from '../../lib/hash.js';
-import { createLogger } from '../../lib/logger.js';
-import { assertBudget } from '../../lib/cost.js';
-import { recordAudit } from '../../lib/audit.js';
-import { assertCampaignTransition } from '../../lib/state-machine.js';
-import { Wedge } from '../../lib/contracts.js';
-import { assertCompliant, composeInitialMessage } from './compose.js';
-import { ComplianceError } from './errors.js';
+import { getConfig } from '../../lib/config';
+import { getDb, many, one } from '../../lib/db';
+import { BudgetExceededError } from '../../lib/errors';
+import { newId, slugify } from '../../lib/hash';
+import { createLogger } from '../../lib/logger';
+import { assertBudget } from '../../lib/cost';
+import { recordAudit } from '../../lib/audit';
+import { assertCampaignTransition } from '../../lib/state-machine';
+import { Wedge } from '../../lib/contracts';
+import { assertCompliant, composeInitialMessage } from './compose';
+import { ComplianceError } from './errors';
 import {
   buildLandingCopy,
   landingUrlFor,
@@ -27,10 +27,10 @@ import {
   parseJsonColumn,
   type LandingCopy,
   type OfferContext,
-} from './offer.js';
-import { idempotencyKeyFor, insertDraftMessage, prospectContextFromRow, type ProspectRow } from './drafts.js';
-import { isCountryAllowed, suppress } from './suppression.js';
-import type { PrepareResult } from './index.js';
+} from './offer';
+import { idempotencyKeyFor, insertDraftMessage, prospectContextFromRow, type ProspectRow } from './drafts';
+import { isCountryAllowed, suppress } from './suppression';
+import type { PrepareResult } from './index';
 
 const logger = createLogger('outreach:campaign');
 

@@ -14,10 +14,10 @@
  *      scraped and that answer is respected.
  *   4. Anything behind a login wall is skipped entirely.
  */
-import { politeFetch } from '../../lib/fetch.js';
-import { createLogger } from '../../lib/logger.js';
-import { extractLinks, extractMailtoAddresses, extractText, looksLikeAuthWall } from './html.js';
-import { isSameCompanyDomain, normalizeDomain } from './domain.js';
+import { politeFetch } from '../../lib/fetch';
+import { createLogger } from '../../lib/logger';
+import { extractLinks, extractMailtoAddresses, extractText, looksLikeAuthWall } from './html';
+import { isSameCompanyDomain, normalizeDomain } from './domain';
 
 const logger = createLogger('prospecting:contact');
 

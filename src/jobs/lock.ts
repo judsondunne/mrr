@@ -9,8 +9,8 @@
  * The lock is a row with an expiry, acquired with a conditional INSERT/UPDATE
  * so the database — not application timing — decides the winner.
  */
-import { getDb } from '../lib/db.js';
-import { createLogger } from '../lib/logger.js';
+import { getDb } from '../lib/db';
+import { createLogger } from '../lib/logger';
 import { randomUUID } from 'node:crypto';
 
 const logger = createLogger('jobs:lock');

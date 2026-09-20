@@ -11,14 +11,14 @@
  */
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { createLogger } from '../../lib/logger.js';
-import { recordAudit } from '../../lib/audit.js';
-import { collectDossier, type ValidationDossier } from '../validation/dossier.js';
-import type { ProspectEvidenceItem } from '../validation/evidence.js';
-import { containsClaimLanguage } from '../notify/claims.js';
-import { formatInt, formatMoney, revenueMathLines } from '../notify/render.js';
-import { resolveSpecLocation } from './paths.js';
-import { polishParagraph } from './prose.js';
+import { createLogger } from '../../lib/logger';
+import { recordAudit } from '../../lib/audit';
+import { collectDossier, type ValidationDossier } from '../validation/dossier';
+import type { ProspectEvidenceItem } from '../validation/evidence';
+import { containsClaimLanguage } from '../notify/claims';
+import { formatInt, formatMoney, revenueMathLines } from '../notify/render';
+import { resolveSpecLocation } from './paths';
+import { polishParagraph } from './prose';
 
 const logger = createLogger('buildspec');
 

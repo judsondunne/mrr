@@ -10,17 +10,17 @@
  *
  * Before adding a call site, ask: "can normal code do this?" If yes, do that.
  */
-import { getConfig } from '../config.js';
-import { getDb } from '../db.js';
-import { sha256 } from '../hash.js';
-import { createLogger } from '../logger.js';
-import { assertBudget, estimateLlmCost, recordCosts } from '../cost.js';
-import { AnthropicProvider } from './anthropic.js';
-import { MockLlmProvider } from './mock.js';
-import type { LlmProvider, LlmRequest, LlmResponse } from './types.js';
+import { getConfig } from '../config';
+import { getDb } from '../db';
+import { sha256 } from '../hash';
+import { createLogger } from '../logger';
+import { assertBudget, estimateLlmCost, recordCosts } from '../cost';
+import { AnthropicProvider } from './anthropic';
+import { MockLlmProvider } from './mock';
+import type { LlmProvider, LlmRequest, LlmResponse } from './types';
 
-export type { LlmProvider, LlmRequest, LlmResponse, LlmTier } from './types.js';
-export { MockLlmProvider } from './mock.js';
+export type { LlmProvider, LlmRequest, LlmResponse, LlmTier } from './types';
+export { MockLlmProvider } from './mock';
 
 const logger = createLogger('llm');
 

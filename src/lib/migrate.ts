@@ -1,7 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { getDb } from './db.js';
-import { createLogger } from './logger.js';
+import { getDb } from './db';
+import { createLogger } from './logger';
 
 const logger = createLogger('migrate');
 

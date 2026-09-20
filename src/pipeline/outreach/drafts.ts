@@ -9,9 +9,9 @@
  * guarantee — it is a UNIQUE index in the schema, so a second attempt to draft
  * the same (campaign, prospect, step) is a database-level no-op.
  */
-import { getDb } from '../../lib/db.js';
-import { newId } from '../../lib/hash.js';
-import type { ComposedMessage, ProspectContext } from './compose.js';
+import { getDb } from '../../lib/db';
+import { newId } from '../../lib/hash';
+import type { ComposedMessage, ProspectContext } from './compose';
 
 export interface ProspectRow {
   id: string;

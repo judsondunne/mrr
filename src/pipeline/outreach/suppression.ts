@@ -8,10 +8,10 @@
  *
  * Suppression is permanent and idempotent. There is deliberately no unsuppress().
  */
-import { getDb, many, one } from '../../lib/db.js';
-import { newId } from '../../lib/hash.js';
-import { createLogger } from '../../lib/logger.js';
-import { recordAudit } from '../../lib/audit.js';
+import { getDb, many, one } from '../../lib/db';
+import { newId } from '../../lib/hash';
+import { createLogger } from '../../lib/logger';
+import { recordAudit } from '../../lib/audit';
 
 const logger = createLogger('outreach:suppression');
 

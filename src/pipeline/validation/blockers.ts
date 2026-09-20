@@ -13,9 +13,9 @@
  * A blocker is permanent unless an explicit 'FEASIBILITY_BLOCKER_CLEARED'
  * decision is recorded after it.
  */
-import { getDb } from '../../lib/db.js';
-import { recordAudit } from '../../lib/audit.js';
-import { loadOpportunity, parseWedge } from './opportunity.js';
+import { getDb } from '../../lib/db';
+import { recordAudit } from '../../lib/audit';
+import { loadOpportunity, parseWedge } from './opportunity';
 
 export const BLOCKER_REASON = 'FEASIBILITY_BLOCKER';
 export const BLOCKER_CLEARED_REASON = 'FEASIBILITY_BLOCKER_CLEARED';

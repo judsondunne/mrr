@@ -6,8 +6,8 @@
  * no code path that writes outside it.
  */
 import path from 'node:path';
-import { slugify } from '../../lib/hash.js';
-import { SafetyError } from '../../lib/errors.js';
+import { slugify } from '../../lib/hash';
+import { SafetyError } from '../../lib/errors';
 
 export const DEFAULT_OUTPUT_DIR = 'validated';
 

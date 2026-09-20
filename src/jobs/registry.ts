@@ -8,26 +8,26 @@
  * anything that reaches the outside world. `OUTREACH_ENABLED` gates sending
  * separately, so research can be fully autonomous with zero outbound email.
  */
-import { getConfig, isShadowMode } from '../lib/config.js';
-import { getDb } from '../lib/db.js';
-import { createLogger } from '../lib/logger.js';
-import { SafetyError } from '../lib/errors.js';
-import { recordAudit } from '../lib/audit.js';
-import { getBudgetSnapshot } from '../lib/cost.js';
-import { runJobSafely, type JobFn, type JobResult, type JobRunSummary } from './runner.js';
+import { getConfig, isShadowMode } from '../lib/config';
+import { getDb } from '../lib/db';
+import { createLogger } from '../lib/logger';
+import { SafetyError } from '../lib/errors';
+import { recordAudit } from '../lib/audit';
+import { getBudgetSnapshot } from '../lib/cost';
+import { runJobSafely, type JobFn, type JobResult, type JobRunSummary } from './runner';
 
-import { discoverOpportunities } from '../pipeline/discovery/index.js';
-import { verifyCategories } from '../pipeline/verification/index.js';
-import { generateWedges } from '../pipeline/wedge/index.js';
-import { discoverProspects, qualifyProspects } from '../pipeline/prospecting/index.js';
+import { discoverOpportunities } from '../pipeline/discovery/index';
+import { verifyCategories } from '../pipeline/verification/index';
+import { generateWedges } from '../pipeline/wedge/index';
+import { discoverProspects, qualifyProspects } from '../pipeline/prospecting/index';
 import {
   prepareCampaigns,
   sendDueMessages,
   scheduleFollowups,
   flushPendingAutoReplies,
-} from '../pipeline/outreach/index.js';
-import { evaluateCampaigns } from '../pipeline/validation/index.js';
-import { notifyValidatedOpportunities } from '../pipeline/notify/index.js';
+} from '../pipeline/outreach/index';
+import { evaluateCampaigns } from '../pipeline/validation/index';
+import { notifyValidatedOpportunities } from '../pipeline/notify/index';
 
 const logger = createLogger('jobs:registry');
 
@@ -190,7 +190,7 @@ async function cleanupStaleOpportunities(): Promise<JobResult> {
       LIMIT 200`,
   );
 
-  const { transitionOpportunity } = await import('../lib/audit.js');
+  const { transitionOpportunity } = await import('../lib/audit');
   for (const row of dead.rows) {
     await transitionOpportunity({
       opportunityId: row.id,

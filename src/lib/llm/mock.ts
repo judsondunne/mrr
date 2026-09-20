@@ -1,6 +1,6 @@
 import type { z } from 'zod';
-import { createLogger } from '../logger.js';
-import type { LlmProvider, LlmRequest, LlmResponse } from './types.js';
+import { createLogger } from '../logger';
+import type { LlmProvider, LlmRequest, LlmResponse } from './types';
 
 const logger = createLogger('llm:mock');
 

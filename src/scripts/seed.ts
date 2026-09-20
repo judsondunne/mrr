@@ -6,9 +6,9 @@
  * Everything seeded is SYNTHETIC: domains are *.example.com, which cannot
  * resolve to a real business, and seeding never triggers a send.
  */
-import { runMigrations } from '../lib/migrate.js';
-import { closeDb, getDb } from '../lib/db.js';
-import { seedAll, SCENARIOS, seedScenario, type ScenarioName } from './fixtures.js';
+import { runMigrations } from '../lib/migrate';
+import { closeDb, getDb } from '../lib/db';
+import { seedAll, SCENARIOS, seedScenario, type ScenarioName } from './fixtures';
 
 async function main(): Promise<void> {
   const only = process.argv[2] as ScenarioName | undefined;

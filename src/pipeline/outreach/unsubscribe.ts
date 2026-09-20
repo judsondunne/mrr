@@ -11,10 +11,10 @@
  * Verification is constant-time (safeCompare) and happens BEFORE the address is
  * decoded into anything that touches the database.
  */
-import { getConfig } from '../../lib/config.js';
-import { hmacSign, safeCompare } from '../../lib/hash.js';
-import { createLogger } from '../../lib/logger.js';
-import { normalizeEmail, suppress } from './suppression.js';
+import { getConfig } from '../../lib/config';
+import { hmacSign, safeCompare } from '../../lib/hash';
+import { createLogger } from '../../lib/logger';
+import { normalizeEmail, suppress } from './suppression';
 
 const logger = createLogger('outreach:unsubscribe');
 

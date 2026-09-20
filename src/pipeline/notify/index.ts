@@ -9,26 +9,26 @@
  * is what the logs and the dashboard are for. If you are about to add one,
  * don't: an owner who gets progress emails stops reading the one that matters.
  */
-import { getConfig } from '../../lib/config.js';
-import { getDb } from '../../lib/db.js';
-import { newId } from '../../lib/hash.js';
-import { createLogger, errorToFields } from '../../lib/logger.js';
-import { recordAudit } from '../../lib/audit.js';
-import { sendEmail } from '../../lib/email/index.js';
-import type { NotificationKind } from '../../lib/contracts.js';
-import { renderReadyToBuildEmail } from './render.js';
-import { assertNoGuaranteeLanguage } from './claims.js';
+import { getConfig } from '../../lib/config';
+import { getDb } from '../../lib/db';
+import { newId } from '../../lib/hash';
+import { createLogger, errorToFields } from '../../lib/logger';
+import { recordAudit } from '../../lib/audit';
+import { sendEmail } from '../../lib/email/index';
+import type { NotificationKind } from '../../lib/contracts';
+import { renderReadyToBuildEmail } from './render';
+import { assertNoGuaranteeLanguage } from './claims';
 
 const logger = createLogger('notify');
 const ACTOR = 'notify_validated_opportunities';
 
-export { renderReadyToBuildEmail } from './render.js';
+export { renderReadyToBuildEmail } from './render';
 export {
   assertNoGuaranteeLanguage,
   containsClaimLanguage,
   findClaimLanguage,
   FORBIDDEN_CLAIM_PATTERNS,
-} from './claims.js';
+} from './claims';
 
 export function readyToBuildDedupeKey(opportunityId: string): string {
   return `READY_TO_BUILD:${opportunityId}`;

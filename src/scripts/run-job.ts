@@ -1,9 +1,9 @@
 #!/usr/bin/env tsx
 /** Usage: npm run job -- <job_name>   |   npm run job -- --all */
-import { runMigrations } from '../lib/migrate.js';
-import { closeDb } from '../lib/db.js';
-import { JOB_NAMES, runJob, runPipeline } from '../jobs/registry.js';
-import { isShadowMode } from '../lib/config.js';
+import { runMigrations } from '../lib/migrate';
+import { closeDb } from '../lib/db';
+import { JOB_NAMES, runJob, runPipeline } from '../jobs/registry';
+import { isShadowMode } from '../lib/config';
 
 async function main(): Promise<void> {
   const arg = process.argv[2];

@@ -5,9 +5,9 @@
  * has not changed since we last looked at it, so no downstream analysis — and
  * in particular no LLM call — may run against it again.
  */
-import { getDb } from '../../lib/db.js';
-import { contentHash, newId } from '../../lib/hash.js';
-import { createLogger } from '../../lib/logger.js';
+import { getDb } from '../../lib/db';
+import { contentHash, newId } from '../../lib/hash';
+import { createLogger } from '../../lib/logger';
 
 const logger = createLogger('discovery:source-docs');
 

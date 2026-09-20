@@ -42,13 +42,11 @@ export interface CampaignCounts {
   positiveIntentRate: number;
 }
 
-export interface HealthVerdict {
-  healthy: boolean;
-  reason: string | null;
-  hardBounceRate: number;
-  complaintRate: number;
-  unsubscribeRate: number;
-}
+/**
+ * Re-exported so the validation layer and the outreach layer can never
+ * disagree about what an unhealthy campaign is. See lib/campaign-health.
+ */
+export type { HealthVerdict } from '../../lib/campaign-health';
 
 /**
  * Stable check identifiers. The dashboard and the audit trail key off these,

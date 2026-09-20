@@ -1,26 +1,26 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { freshDb, teardown, insertOpportunity } from '../helpers.js';
-import { contentHash, newId } from '../../src/lib/hash.js';
-import type { Db } from '../../src/lib/db.js';
+import { freshDb, teardown, insertOpportunity } from '../helpers';
+import { contentHash, newId } from '../../src/lib/hash';
+import type { Db } from '../../src/lib/db';
 import {
   clusterComplaints,
   extractComplaintText,
   needsLlmNaming,
   severityFor,
   tagComplaintText,
-} from '../../src/pipeline/wedge/clustering.js';
+} from '../../src/pipeline/wedge/clustering';
 import {
   validateWedge,
   containsCustomerNoun,
   findBannedPhrases,
   MAX_V1_FEATURES,
-} from '../../src/pipeline/wedge/generate.js';
+} from '../../src/pipeline/wedge/generate';
 import {
   generateWedgeFor,
   generateWedges,
   loadWedgeFor,
   rejectionReasonFor,
-} from '../../src/pipeline/wedge/index.js';
+} from '../../src/pipeline/wedge/index';
 
 afterEach(async () => {
   for (const key of Object.keys(ENV)) delete process.env[key];

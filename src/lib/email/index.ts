@@ -7,10 +7,10 @@
  * does enforce is that the mock provider is used whenever the system is not
  * fully cleared to send, so shadow mode physically cannot emit a real email.
  */
-import { canSendRealEmail, getConfig } from '../config.js';
-import { createLogger } from '../logger.js';
-import { ProviderError } from '../errors.js';
-import { recordCost } from '../cost.js';
+import { canSendRealEmail, getConfig } from '../config';
+import { createLogger } from '../logger';
+import { ProviderError } from '../errors';
+import { recordCost } from '../cost';
 
 const logger = createLogger('email');
 

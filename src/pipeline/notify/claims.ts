@@ -10,7 +10,7 @@
  *   "VALIDATED — X real businesses explicitly indicated they are prepared to
  *    use this at $Y/month."
  */
-import { SafetyError } from '../../lib/errors.js';
+import { SafetyError } from '../../lib/errors';
 
 export interface ClaimPattern {
   label: string;

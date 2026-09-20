@@ -6,15 +6,15 @@
  * is how "never fabricate a quotation" is enforced structurally rather than by
  * asking nicely.
  */
-import { getDb, toNumber } from '../../lib/db.js';
-import { AppError } from '../../lib/errors.js';
+import { getDb, toNumber } from '../../lib/db';
+import { AppError } from '../../lib/errors';
 import {
   getCampaignCounts,
   getCommitmentCompaniesByType,
   getLatestCampaignId,
   getQualifiedProspectCount,
   getUniqueCompanyCountForTypes,
-} from './counts.js';
+} from './counts';
 import {
   getCompetitorEvidence,
   getCustomerDerivedRequirements,
@@ -24,8 +24,8 @@ import {
   type CustomerRequirement,
   type ProspectEvidenceItem,
   type WaitingCompany,
-} from './evidence.js';
-import { evaluateGate } from './gate.js';
+} from './evidence';
+import { evaluateGate } from './gate';
 import {
   loadOpportunity,
   parseWedge,
@@ -33,8 +33,8 @@ import {
   resolvePrice,
   type OpportunityRow,
   type WedgeFacts,
-} from './opportunity.js';
-import { EMPTY_COUNTS, type CampaignCounts, type GateEvaluation } from './types.js';
+} from './opportunity';
+import { EMPTY_COUNTS, type CampaignCounts, type GateEvaluation } from './types';
 
 export interface CampaignFacts {
   id: string;

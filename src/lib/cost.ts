@@ -5,11 +5,11 @@
  * assertBudget() BEFORE it spends, and recordCost() after. Going over budget
  * halts the relevant job loudly — it never silently overspends.
  */
-import { getConfig } from './config.js';
-import { getDb, toNumber } from './db.js';
-import { BudgetExceededError } from './errors.js';
-import { newId } from './hash.js';
-import { createLogger } from './logger.js';
+import { getConfig } from './config';
+import { getDb, toNumber } from './db';
+import { BudgetExceededError } from './errors';
+import { newId } from './hash';
+import { createLogger } from './logger';
 
 const logger = createLogger('cost');
 

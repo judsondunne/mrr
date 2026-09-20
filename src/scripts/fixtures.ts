@@ -11,8 +11,8 @@
  *
  * Scenario 2 is the point of the whole system: research quality is NOT demand.
  */
-import { getDb, type Db } from '../lib/db.js';
-import { newId } from '../lib/hash.js';
+import { getDb, type Db } from '../lib/db';
+import { newId } from '../lib/hash';
 
 export type ScenarioName =
   | 'failed-idea'

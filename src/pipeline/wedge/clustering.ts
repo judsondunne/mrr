@@ -11,11 +11,11 @@
  * "Can normal code do this?" — for 90% of review complaints, yes.
  */
 import { z } from 'zod';
-import { getDb } from '../../lib/db.js';
-import { newId } from '../../lib/hash.js';
-import { createLogger } from '../../lib/logger.js';
-import { llmComplete } from '../../lib/llm/index.js';
-import { BudgetExceededError } from '../../lib/errors.js';
+import { getDb } from '../../lib/db';
+import { newId } from '../../lib/hash';
+import { createLogger } from '../../lib/logger';
+import { llmComplete } from '../../lib/llm/index';
+import { BudgetExceededError } from '../../lib/errors';
 
 const logger = createLogger('wedge:clustering');
 

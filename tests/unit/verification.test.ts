@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { freshDb, insertOpportunity, teardown } from '../helpers.js';
-import { resetConfigCache } from '../../src/lib/config.js';
-import { contentHash, newId } from '../../src/lib/hash.js';
-import type { Db } from '../../src/lib/db.js';
-import type { EvidenceItem, ExtractedReview } from '../../src/lib/contracts.js';
+import { freshDb, insertOpportunity, teardown } from '../helpers';
+import { resetConfigCache } from '../../src/lib/config';
+import { contentHash, newId } from '../../src/lib/hash';
+import type { Db } from '../../src/lib/db';
+import type { EvidenceItem, ExtractedReview } from '../../src/lib/contracts';
 import {
   assessCategoryEvidence,
   classifyCompetitorEvidence,
@@ -12,15 +12,15 @@ import {
   meetsConfidence,
   usageDurationMonths,
   type CompetitorFacts,
-} from '../../src/pipeline/verification/evidence.js';
+} from '../../src/pipeline/verification/evidence';
 import {
   ALL_RULES,
   estimateBuildDays,
   evaluateRejectionRules,
   HARD_MAX_BUILD_DAYS,
   REJECT_PENALTY_THRESHOLD,
-} from '../../src/pipeline/verification/rejection-rules.js';
-import { verifyCategories, verifyOpportunity } from '../../src/pipeline/verification/index.js';
+} from '../../src/pipeline/verification/rejection-rules';
+import { verifyCategories, verifyOpportunity } from '../../src/pipeline/verification/index';
 
 const BASE_ENV: Record<string, string> = {
   REQUIRED_CATEGORY_EVIDENCE_CONFIDENCE: 'HIGH',

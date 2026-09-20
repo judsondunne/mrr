@@ -16,18 +16,18 @@
  * passed through assertCompliant() before any send path will touch it.
  */
 import { z } from 'zod';
-import { getConfig, type Config } from '../../lib/config.js';
-import { createLogger } from '../../lib/logger.js';
-import { llmComplete } from '../../lib/llm/index.js';
-import { ComplianceError } from './errors.js';
-import { type OfferContext, displayEcosystem, formatPrice } from './offer.js';
+import { getConfig, type Config } from '../../lib/config';
+import { createLogger } from '../../lib/logger';
+import { llmComplete } from '../../lib/llm/index';
+import { ComplianceError } from './errors';
+import { type OfferContext, displayEcosystem, formatPrice } from './offer';
 import {
   buildUnsubscribeUrl,
   extractUnsubscribeToken,
   unsubscribeHeaders,
   verifyUnsubscribeToken,
-} from './unsubscribe.js';
-import { normalizeEmail } from './suppression.js';
+} from './unsubscribe';
+import { normalizeEmail } from './suppression';
 
 const logger = createLogger('outreach:compose');
 

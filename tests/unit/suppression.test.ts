@@ -6,10 +6,10 @@
  * already drafted and approved before the suppression happened.
  */
 import { describe, it, expect, afterEach } from 'vitest';
-import { freshDb, teardown, insertProspect } from '../helpers.js';
-import { resetConfigCache } from '../../src/lib/config.js';
-import { newId } from '../../src/lib/hash.js';
-import type { Db } from '../../src/lib/db.js';
+import { freshDb, teardown, insertProspect } from '../helpers';
+import { resetConfigCache } from '../../src/lib/config';
+import { newId } from '../../src/lib/hash';
+import type { Db } from '../../src/lib/db';
 import {
   suppress,
   isSuppressed,
@@ -19,17 +19,17 @@ import {
   domainOfEmail,
   companyKeyFor,
   isCountryAllowed,
-} from '../../src/pipeline/outreach/suppression.js';
+} from '../../src/pipeline/outreach/suppression';
 import {
   buildUnsubscribeUrl,
   buildUnsubscribeToken,
   verifyUnsubscribeToken,
   processUnsubscribe,
   extractUnsubscribeToken,
-} from '../../src/pipeline/outreach/unsubscribe.js';
-import { prepareCampaigns } from '../../src/pipeline/outreach/campaign.js';
-import { sendDueMessages } from '../../src/pipeline/outreach/send.js';
-import type { Wedge } from '../../src/lib/contracts.js';
+} from '../../src/pipeline/outreach/unsubscribe';
+import { prepareCampaigns } from '../../src/pipeline/outreach/campaign';
+import { sendDueMessages } from '../../src/pipeline/outreach/send';
+import type { Wedge } from '../../src/lib/contracts';
 
 const ORIGINAL_ENV = { ...process.env };
 

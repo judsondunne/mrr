@@ -10,9 +10,9 @@
  * being validated and does not exist yet.
  */
 import { z } from 'zod';
-import { getConfig } from '../../lib/config.js';
-import { one } from '../../lib/db.js';
-import { Wedge } from '../../lib/contracts.js';
+import { getConfig } from '../../lib/config';
+import { one } from '../../lib/db';
+import { Wedge } from '../../lib/contracts';
 
 /** Exactly what the web layer renders at /v/[slug]. Validated on read and write. */
 export const LandingCopy = z.object({

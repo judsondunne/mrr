@@ -9,26 +9,26 @@
  * writes `opportunities.state` with raw SQL, and it never asks an LLM whether
  * a category is good.
  */
-import { recordAudit, transitionOpportunity } from '../../lib/audit.js';
-import { getConfig } from '../../lib/config.js';
-import { getDb, toNumber } from '../../lib/db.js';
-import { AppError } from '../../lib/errors.js';
-import { createLogger } from '../../lib/logger.js';
-import { dayStart } from '../../lib/cost.js';
+import { recordAudit, transitionOpportunity } from '../../lib/audit';
+import { getConfig } from '../../lib/config';
+import { getDb, toNumber } from '../../lib/db';
+import { AppError } from '../../lib/errors';
+import { createLogger } from '../../lib/logger';
+import { dayStart } from '../../lib/cost';
 import type {
   EvidenceConfidence,
   EvidenceItem,
   ExtractedReview,
   RejectionReason,
-} from '../../lib/contracts.js';
+} from '../../lib/contracts';
 import {
   assessCategoryEvidence,
   meetsConfidence,
   readCompetitorEvidenceJson,
   type CompetitorFacts,
   type EvidenceAssessment,
-} from './evidence.js';
-import { estimateBuildDays, evaluateRejectionRules, type RejectionSubject } from './rejection-rules.js';
+} from './evidence';
+import { estimateBuildDays, evaluateRejectionRules, type RejectionSubject } from './rejection-rules';
 
 const logger = createLogger('verification');
 const ACTOR = 'verify_categories';
@@ -397,12 +397,12 @@ export {
   classifyCompetitorEvidence,
   classifyResearchEvidence,
   meetsConfidence,
-} from './evidence.js';
-export type { CompetitorFacts, EvidenceAssessment } from './evidence.js';
+} from './evidence';
+export type { CompetitorFacts, EvidenceAssessment } from './evidence';
 export {
   ALL_RULES,
   estimateBuildDays,
   evaluateRejectionRules,
   REJECT_PENALTY_THRESHOLD,
-} from './rejection-rules.js';
-export type { RejectionSubject, RejectionVerdict, RuleMatch } from './rejection-rules.js';
+} from './rejection-rules';
+export type { RejectionSubject, RejectionVerdict, RuleMatch } from './rejection-rules';

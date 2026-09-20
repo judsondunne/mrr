@@ -1,13 +1,13 @@
-import { getDb } from './db.js';
-import { newId } from './hash.js';
-import { createLogger, redact } from './logger.js';
+import { getDb } from './db';
+import { newId } from './hash';
+import { createLogger, redact } from './logger';
 import {
   assertTransition,
   type GateToken,
   type OpportunityState,
   isOpportunityState,
-} from './state-machine.js';
-import { IllegalTransitionError } from './errors.js';
+} from './state-machine';
+import { IllegalTransitionError } from './errors';
 
 const logger = createLogger('audit');
 

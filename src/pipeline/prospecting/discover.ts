@@ -7,22 +7,22 @@
  * merchant's own site confirms who they are. Nothing here reads anything that
  * is not publicly served, and no contact list is ever bought or imported.
  */
-import type { Wedge } from '../../lib/contracts.js';
-import { getConfig } from '../../lib/config.js';
-import { getDb } from '../../lib/db.js';
-import { hasBudget } from '../../lib/cost.js';
-import { politeFetch } from '../../lib/fetch.js';
-import { contentHash, newId } from '../../lib/hash.js';
-import { createLogger } from '../../lib/logger.js';
-import { search, type SearchResult } from '../../lib/search/index.js';
-import { BudgetExceededError } from '../../lib/errors.js';
-import { extractCompanyName, extractText, looksLikeAuthWall } from './html.js';
+import type { Wedge } from '../../lib/contracts';
+import { getConfig } from '../../lib/config';
+import { getDb } from '../../lib/db';
+import { hasBudget } from '../../lib/cost';
+import { politeFetch } from '../../lib/fetch';
+import { contentHash, newId } from '../../lib/hash';
+import { createLogger } from '../../lib/logger';
+import { search, type SearchResult } from '../../lib/search/index';
+import { BudgetExceededError } from '../../lib/errors';
+import { extractCompanyName, extractText, looksLikeAuthWall } from './html';
 import {
   domainToCompanyName,
   isDisallowedProspectDomain,
   normalizeDomain,
-} from './domain.js';
-import { keywordsFrom } from './qualify.js';
+} from './domain';
+import { keywordsFrom } from './qualify';
 
 const logger = createLogger('prospecting:discover');
 
@@ -307,4 +307,4 @@ export async function discoverProspectsFor(params: {
   return outcome;
 }
 
-export { normalizeDomain, isDisallowedProspectDomain } from './domain.js';
+export { normalizeDomain, isDisallowedProspectDomain } from './domain';

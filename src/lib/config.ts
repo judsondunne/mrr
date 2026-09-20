@@ -1,5 +1,5 @@
 import { config as loadDotenv } from 'dotenv';
-import { ConfigError } from './errors.js';
+import { ConfigError } from './errors';
 
 if (typeof process !== 'undefined' && !process.env.NEXT_RUNTIME) {
   loadDotenv({ path: '.env', quiet: true });

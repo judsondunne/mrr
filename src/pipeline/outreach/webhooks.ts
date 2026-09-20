@@ -14,20 +14,20 @@
  */
 import { createHmac } from 'node:crypto';
 import { z } from 'zod';
-import { getConfig } from '../../lib/config.js';
-import { getDb, one } from '../../lib/db.js';
-import { newId, safeCompare, sha256 } from '../../lib/hash.js';
-import { createLogger } from '../../lib/logger.js';
-import { recordAudit } from '../../lib/audit.js';
-import type { CommitmentInput } from '../../lib/contracts.js';
-import { classifyReply, commitmentTypesFor, recordCommitments } from './classify.js';
-import { parseAddress, parseInboundBody, referencedMessageIds } from './inbound-parse.js';
-import { loadOffer } from './offer.js';
-import { draftAutoReply } from './reply-agent.js';
-import { autoReplyIdempotencyKey, insertDraftMessage, prospectContextFromRow, type ProspectRow } from './drafts.js';
-import { sendDraftedMessageNow } from './send.js';
-import { companyKeyFor, isSuppressed, normalizeEmail, suppress } from './suppression.js';
-import type { InboundResult, WebhookResult } from './index.js';
+import { getConfig } from '../../lib/config';
+import { getDb, one } from '../../lib/db';
+import { newId, safeCompare, sha256 } from '../../lib/hash';
+import { createLogger } from '../../lib/logger';
+import { recordAudit } from '../../lib/audit';
+import type { CommitmentInput } from '../../lib/contracts';
+import { classifyReply, commitmentTypesFor, recordCommitments } from './classify';
+import { parseAddress, parseInboundBody, referencedMessageIds } from './inbound-parse';
+import { loadOffer } from './offer';
+import { draftAutoReply } from './reply-agent';
+import { autoReplyIdempotencyKey, insertDraftMessage, prospectContextFromRow, type ProspectRow } from './drafts';
+import { sendDraftedMessageNow } from './send';
+import { companyKeyFor, isSuppressed, normalizeEmail, suppress } from './suppression';
+import type { InboundResult, WebhookResult } from './index';
 
 const logger = createLogger('outreach:webhooks');
 

@@ -4,14 +4,14 @@
  * `freshDb()` gives each test a pristine in-memory Postgres with the real
  * migrations applied — no mocking of the data layer anywhere in the suite.
  */
-import { closeDb, getDb, setDbForTesting } from '../src/lib/db.js';
-import { runMigrations } from '../src/lib/migrate.js';
-import { resetConfigCache } from '../src/lib/config.js';
-import { setLlmProvider, MockLlmProvider } from '../src/lib/llm/index.js';
-import { setSearchProvider, MockSearchProvider } from '../src/lib/search/index.js';
-import { setEmailProvider, MockEmailProvider } from '../src/lib/email/index.js';
-import { newId } from '../src/lib/hash.js';
-import type { Db } from '../src/lib/db.js';
+import { closeDb, getDb, setDbForTesting } from '../src/lib/db';
+import { runMigrations } from '../src/lib/migrate';
+import { resetConfigCache } from '../src/lib/config';
+import { setLlmProvider, MockLlmProvider } from '../src/lib/llm/index';
+import { setSearchProvider, MockSearchProvider } from '../src/lib/search/index';
+import { setEmailProvider, MockEmailProvider } from '../src/lib/email/index';
+import { newId } from '../src/lib/hash';
+import type { Db } from '../src/lib/db';
 
 /**
  * Env vars any test is allowed to override. Cleared before each freshDb() so

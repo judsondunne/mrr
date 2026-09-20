@@ -1,10 +1,10 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { freshDb, teardown } from '../helpers.js';
-import { acquireLock, withLock } from '../../src/jobs/lock.js';
-import { runJobSafely } from '../../src/jobs/runner.js';
-import { getDb, toNumber } from '../../src/lib/db.js';
-import { BudgetExceededError, SafetyError } from '../../src/lib/errors.js';
-import { recordCost } from '../../src/lib/cost.js';
+import { freshDb, teardown } from '../helpers';
+import { acquireLock, withLock } from '../../src/jobs/lock';
+import { runJobSafely } from '../../src/jobs/runner';
+import { getDb, toNumber } from '../../src/lib/db';
+import { BudgetExceededError, SafetyError } from '../../src/lib/errors';
+import { recordCost } from '../../src/lib/cost';
 
 afterEach(async () => { await teardown(); });
 

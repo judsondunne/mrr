@@ -17,16 +17,16 @@ import {
   insertProspect,
   insertDeliveredMessage,
   insertCommitment,
-} from '../helpers.js';
-import type { Db } from '../../src/lib/db.js';
-import { newId } from '../../src/lib/hash.js';
+} from '../helpers';
+import type { Db } from '../../src/lib/db';
+import { newId } from '../../src/lib/hash';
 import {
   evaluateCampaigns,
   checkCampaignHealth,
   snapshotCampaignMetrics,
-} from '../../src/pipeline/validation/evaluate.js';
-import { getCampaignCounts } from '../../src/pipeline/validation/counts.js';
-import { getCustomerDerivedRequirements } from '../../src/pipeline/validation/evidence.js';
+} from '../../src/pipeline/validation/evaluate';
+import { getCampaignCounts } from '../../src/pipeline/validation/counts';
+import { getCustomerDerivedRequirements } from '../../src/pipeline/validation/evidence';
 
 afterEach(async () => {
   await teardown();

@@ -1,10 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
-import { getConfig } from '../config.js';
-import { ProviderError } from '../errors.js';
-import { createLogger } from '../logger.js';
-import { estimateLlmCost } from '../cost.js';
-import type { LlmProvider, LlmRequest, LlmResponse } from './types.js';
+import { getConfig } from '../config';
+import { ProviderError } from '../errors';
+import { createLogger } from '../logger';
+import { estimateLlmCost } from '../cost';
+import type { LlmProvider, LlmRequest, LlmResponse } from './types';
 
 const logger = createLogger('llm:anthropic');
 

@@ -1,21 +1,21 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { freshDb, teardown } from '../helpers.js';
-import { resetFetchState } from '../../src/lib/fetch.js';
+import { freshDb, teardown } from '../helpers';
+import { resetFetchState } from '../../src/lib/fetch';
 import {
   discoverOpportunities,
   getAdapter,
   getAdapters,
   research,
-} from '../../src/pipeline/discovery/index.js';
+} from '../../src/pipeline/discovery/index';
 import {
   normalizeListingUrl,
   reviewsUrl,
   ShopifyEvidenceExtractor,
   ShopifyProspectFinder,
   SHOPIFY_SEED_CATEGORIES,
-} from '../../src/pipeline/discovery/shopify.js';
+} from '../../src/pipeline/discovery/shopify';
 import {
   classifyReviewPaymentSignal,
   extractMonthlyPrices,
@@ -24,9 +24,9 @@ import {
   parseAppListing,
   parseReviews,
   tagComplaints,
-} from '../../src/pipeline/discovery/parse.js';
-import { storeSourceDocument } from '../../src/pipeline/discovery/source-documents.js';
-import type { Db } from '../../src/lib/db.js';
+} from '../../src/pipeline/discovery/parse';
+import { storeSourceDocument } from '../../src/pipeline/discovery/source-documents';
+import type { Db } from '../../src/lib/db';
 
 // --- fixtures ----------------------------------------------------------------
 

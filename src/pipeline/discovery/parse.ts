@@ -9,8 +9,8 @@
  * thrown, and a totally unparseable page yields an empty-but-valid result.
  */
 import { load, type CheerioAPI } from 'cheerio';
-import { createLogger } from '../../lib/logger.js';
-import type { ExtractedReview } from '../../lib/contracts.js';
+import { createLogger } from '../../lib/logger';
+import type { ExtractedReview } from '../../lib/contracts';
 
 const logger = createLogger('discovery:parse');
 

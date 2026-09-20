@@ -6,8 +6,8 @@
  * broken markup.
  */
 import * as cheerio from 'cheerio';
-import { createLogger } from '../../lib/logger.js';
-import { domainToCompanyName } from './domain.js';
+import { createLogger } from '../../lib/logger';
+import { domainToCompanyName } from './domain';
 
 const logger = createLogger('prospecting:html');
 

@@ -23,8 +23,8 @@ import {
   type EvidenceConfidence,
   type EvidenceType,
   type ExtractedReview,
-} from '../../lib/contracts.js';
-import { createLogger } from '../../lib/logger.js';
+} from '../../lib/contracts';
+import { createLogger } from '../../lib/logger';
 
 const logger = createLogger('verification:evidence');
 

@@ -8,20 +8,20 @@
  *   - an open is recorded and never counted as intent.
  */
 import { describe, it, expect, afterEach } from 'vitest';
-import { freshDb, teardown, insertProspect, type TestContext } from '../helpers.js';
-import { resetConfigCache } from '../../src/lib/config.js';
-import { newId } from '../../src/lib/hash.js';
-import type { Db } from '../../src/lib/db.js';
+import { freshDb, teardown, insertProspect, type TestContext } from '../helpers';
+import { resetConfigCache } from '../../src/lib/config';
+import { newId } from '../../src/lib/hash';
+import type { Db } from '../../src/lib/db';
 import {
   handleDeliveryWebhook,
   handleInboundWebhook,
   signWebhookPayload,
   verifyWebhookSignature,
   classifyBounce,
-} from '../../src/pipeline/outreach/webhooks.js';
-import { isSuppressed } from '../../src/pipeline/outreach/suppression.js';
-import { buildLandingCopy } from '../../src/pipeline/outreach/offer.js';
-import type { Wedge } from '../../src/lib/contracts.js';
+} from '../../src/pipeline/outreach/webhooks';
+import { isSuppressed } from '../../src/pipeline/outreach/suppression';
+import { buildLandingCopy } from '../../src/pipeline/outreach/offer';
+import type { Wedge } from '../../src/lib/contracts';
 
 const WEBHOOK_SECRET = `whsec_${Buffer.from('test-webhook-signing-key-0123456789').toString('base64')}`;
 const ORIGINAL_ENV = { ...process.env };

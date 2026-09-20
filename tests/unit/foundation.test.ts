@@ -8,14 +8,14 @@ import {
   OPPORTUNITY_STATES,
   DEAD_STATES,
   assertCampaignTransition,
-} from '../../src/lib/state-machine.js';
-import { IllegalTransitionError, BudgetExceededError } from '../../src/lib/errors.js';
-import { redact } from '../../src/lib/logger.js';
-import { sha256, contentHash, slugify, safeCompare, stableStringify } from '../../src/lib/hash.js';
-import { splitStatements } from '../../src/lib/migrate.js';
-import { robotsAllows } from '../../src/lib/fetch.js';
-import { freshDb, teardown } from '../helpers.js';
-import { recordCost, assertBudget, getBudgetSnapshot, estimateLlmCost } from '../../src/lib/cost.js';
+} from '../../src/lib/state-machine';
+import { IllegalTransitionError, BudgetExceededError } from '../../src/lib/errors';
+import { redact } from '../../src/lib/logger';
+import { sha256, contentHash, slugify, safeCompare, stableStringify } from '../../src/lib/hash';
+import { splitStatements } from '../../src/lib/migrate';
+import { robotsAllows } from '../../src/lib/fetch';
+import { freshDb, teardown } from '../helpers';
+import { recordCost, assertBudget, getBudgetSnapshot, estimateLlmCost } from '../../src/lib/cost';
 
 afterEach(async () => { await teardown(); });
 

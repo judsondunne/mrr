@@ -12,11 +12,11 @@
  *     free-tier verdict, and then only on a short extracted snippet.
  */
 import { z } from 'zod';
-import { AppError, BudgetExceededError, FetchError } from '../../lib/errors.js';
-import { politeFetch } from '../../lib/fetch.js';
-import { llmComplete } from '../../lib/llm/index.js';
-import { createLogger } from '../../lib/logger.js';
-import { search } from '../../lib/search/index.js';
+import { AppError, BudgetExceededError, FetchError } from '../../lib/errors';
+import { politeFetch } from '../../lib/fetch';
+import { llmComplete } from '../../lib/llm/index';
+import { createLogger } from '../../lib/logger';
+import { search } from '../../lib/search/index';
 import type {
   DiscoveredCandidate,
   EvidenceExtractor,
@@ -26,14 +26,14 @@ import type {
   OpportunitySource,
   ProspectCandidate,
   ProspectFinder,
-} from '../../lib/contracts.js';
+} from '../../lib/contracts';
 import {
   classifyCompetitorEvidence,
   CompetitorEvidenceJson,
   type CompetitorFacts,
-} from '../verification/evidence.js';
-import { htmlToText, parseAppListing, parseReviews, pricingSnippet, type ParsedListing } from './parse.js';
-import { storeSourceDocument } from './source-documents.js';
+} from '../verification/evidence';
+import { htmlToText, parseAppListing, parseReviews, pricingSnippet, type ParsedListing } from './parse';
+import { storeSourceDocument } from './source-documents';
 
 const logger = createLogger('discovery:shopify');
 
@@ -237,7 +237,7 @@ export function reviewsUrl(listingUrl: string): string {
 // --- fetch + persist ---------------------------------------------------------
 
 // Defined once in contracts.ts so every ecosystem adapter shares one shape.
-export type { ExtractContext } from '../../lib/contracts.js';
+export type { ExtractContext } from '../../lib/contracts';
 
 interface FetchedPage {
   url: string;

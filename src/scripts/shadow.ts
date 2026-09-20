@@ -7,11 +7,11 @@
  * credentials at all — mock providers stand in for Anthropic, Brave and Resend,
  * and the database is local PGlite.
  */
-import { closeDb, getDb, toNumber } from '../lib/db.js';
-import { runMigrations } from '../lib/migrate.js';
-import { getConfig, resetConfigCache } from '../lib/config.js';
-import { runPipeline, type JobName } from '../jobs/registry.js';
-import { getBudgetSnapshot, getCostBreakdown } from '../lib/cost.js';
+import { closeDb, getDb, toNumber } from '../lib/db';
+import { runMigrations } from '../lib/migrate';
+import { getConfig, resetConfigCache } from '../lib/config';
+import { runPipeline, type JobName } from '../jobs/registry';
+import { getBudgetSnapshot, getCostBreakdown } from '../lib/cost';
 
 // Force shadow before any module reads config.
 process.env.AUTONOMY_ENABLED = 'false';

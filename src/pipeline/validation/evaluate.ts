@@ -10,22 +10,23 @@
  * second transition, no second audit decision, and (because notification
  * dedupes on the opportunity) no second email.
  */
-import { getConfig } from '../../lib/config.js';
-import { getDb, toNumber } from '../../lib/db.js';
-import { newId } from '../../lib/hash.js';
-import { createLogger, errorToFields } from '../../lib/logger.js';
-import { recordAudit, transitionOpportunity } from '../../lib/audit.js';
-import { canTransitionCampaign, type CampaignState } from '../../lib/state-machine.js';
-import type { RejectionReason } from '../../lib/contracts.js';
+import { getConfig } from '../../lib/config';
+import { getDb, toNumber } from '../../lib/db';
+import { newId } from '../../lib/hash';
+import { createLogger, errorToFields } from '../../lib/logger';
+import { recordAudit, transitionOpportunity } from '../../lib/audit';
+import { canTransitionCampaign, type CampaignState } from '../../lib/state-machine';
+import type { RejectionReason } from '../../lib/contracts';
 import {
   getAttemptedCount,
   getCampaignCounts,
   getPriceRejectionCount,
   getSnapshotExtras,
   getWrongPersonCount,
-} from './counts.js';
-import { evaluateGateAndMint } from './gate.js';
-import type { CampaignCounts, GateEvaluation, HealthVerdict } from './types.js';
+} from './counts';
+import { evaluateGateAndMint } from './gate';
+import type { CampaignCounts, GateEvaluation, HealthVerdict } from './types';
+import { checkCampaignHealth } from '../../lib/campaign-health';
 
 const logger = createLogger('validation:evaluate');
 const ACTOR = 'evaluate_campaigns';
@@ -53,53 +54,10 @@ interface ActiveCampaignRow {
   price_monthly: string | number | null;
 }
 
-/**
- * Hard bounce / complaint / unsubscribe rates against config.health.
- * Rates are computed over messages that actually left the system.
- */
-export async function checkCampaignHealth(campaignId: string): Promise<HealthVerdict> {
-  const cfg = getConfig();
-  const [counts, attempted] = await Promise.all([
-    getCampaignCounts(campaignId),
-    getAttemptedCount(campaignId),
-  ]);
-
-  const denominator = attempted > 0 ? attempted : 0;
-  const rate = (n: number): number => (denominator > 0 ? n / denominator : 0);
-
-  const hardBounceRate = rate(counts.hardBounced);
-  const complaintRate = rate(counts.complained);
-  const unsubscribeRate = rate(counts.unsubscribed);
-
-  const reasons: string[] = [];
-  if (hardBounceRate > cfg.health.maxHardBounceRate) {
-    reasons.push(
-      `hard bounce rate ${formatPct(hardBounceRate)} (${counts.hardBounced}/${denominator}) exceeds ${formatPct(cfg.health.maxHardBounceRate)}`,
-    );
-  }
-  if (complaintRate > cfg.health.maxComplaintRate) {
-    reasons.push(
-      `complaint rate ${formatPct(complaintRate)} (${counts.complained}/${denominator}) exceeds ${formatPct(cfg.health.maxComplaintRate)}`,
-    );
-  }
-  if (unsubscribeRate > cfg.health.maxUnsubscribeRate) {
-    reasons.push(
-      `unsubscribe rate ${formatPct(unsubscribeRate)} (${counts.unsubscribed}/${denominator}) exceeds ${formatPct(cfg.health.maxUnsubscribeRate)}`,
-    );
-  }
-
-  return {
-    healthy: reasons.length === 0,
-    reason: reasons.length === 0 ? null : reasons.join('; '),
-    hardBounceRate,
-    complaintRate,
-    unsubscribeRate,
-  };
-}
-
-function formatPct(rate: number): string {
-  return `${(rate * 100).toFixed(1)}%`;
-}
+// checkCampaignHealth lives in lib/campaign-health so the send path and the
+// kill path judge a campaign identically. Imported for local use and
+// re-exported to keep this module's public surface unchanged.
+export { checkCampaignHealth };
 
 /** Writes one campaign_metrics row. A time series, never an input to the gate. */
 export async function snapshotCampaignMetrics(campaignId: string): Promise<void> {

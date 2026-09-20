@@ -7,8 +7,8 @@
  */
 import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { runSetupChecks } from '../lib/setup-check.js';
-import { closeDb } from '../lib/db.js';
+import { runSetupChecks } from '../lib/setup-check';
+import { closeDb } from '../lib/db';
 
 const ENV_PATH = resolve(process.cwd(), '.env');
 

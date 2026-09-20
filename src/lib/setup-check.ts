@@ -6,9 +6,9 @@
  * database connectivity. It never sends a test email and never spends an LLM
  * token. Nothing here returns a secret value — only whether one is present.
  */
-import { canSendRealEmail, getConfig } from './config.js';
-import { getDb } from './db.js';
-import { createLogger } from './logger.js';
+import { canSendRealEmail, getConfig } from './config';
+import { getDb } from './db';
+import { createLogger } from './logger';
 
 const logger = createLogger('setup-check');
 

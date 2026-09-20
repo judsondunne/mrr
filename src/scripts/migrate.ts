@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
-import { runMigrations } from '../lib/migrate.js';
-import { closeDb, getDb } from '../lib/db.js';
+import { runMigrations } from '../lib/migrate';
+import { closeDb, getDb } from '../lib/db';
 
 async function main(): Promise<void> {
   const db = await getDb();

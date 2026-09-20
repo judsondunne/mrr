@@ -8,11 +8,11 @@
  *   3. The rendered body is scanned for promise language and the render throws
  *      if any survived. "Guaranteed MRR" can never be sent.
  */
-import { getConfig } from '../../lib/config.js';
-import { AppError } from '../../lib/errors.js';
-import { collectDossier, type ValidationDossier } from '../validation/dossier.js';
-import type { ProspectEvidenceItem } from '../validation/evidence.js';
-import { assertNoGuaranteeLanguage, containsClaimLanguage } from './claims.js';
+import { getConfig } from '../../lib/config';
+import { AppError } from '../../lib/errors';
+import { collectDossier, type ValidationDossier } from '../validation/dossier';
+import type { ProspectEvidenceItem } from '../validation/evidence';
+import { assertNoGuaranteeLanguage, containsClaimLanguage } from './claims';
 
 const MAX_EVIDENCE_ITEMS = 5;
 const MAX_REQUIREMENTS = 6;

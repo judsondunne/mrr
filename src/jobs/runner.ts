@@ -5,13 +5,13 @@
  * A job that throws is recorded as FAILED and never takes the process down.
  * Repeated failures produce ONE actionable owner alert, not a stream.
  */
-import { getDb, toNumber } from '../lib/db.js';
-import { newId } from '../lib/hash.js';
-import { createLogger, errorToFields } from '../lib/logger.js';
-import { BudgetExceededError, SafetyError } from '../lib/errors.js';
-import { getConfig } from '../lib/config.js';
-import { monthStart } from '../lib/cost.js';
-import { withLock } from './lock.js';
+import { getDb, toNumber } from '../lib/db';
+import { newId } from '../lib/hash';
+import { createLogger, errorToFields } from '../lib/logger';
+import { BudgetExceededError, SafetyError } from '../lib/errors';
+import { getConfig } from '../lib/config';
+import { monthStart } from '../lib/cost';
+import { withLock } from './lock';
 
 const logger = createLogger('jobs');
 
@@ -148,7 +148,7 @@ async function maybeAlertRepeatedFailure(job: string): Promise<void> {
   if (!recent.every((r) => r.status === 'FAILED')) return;
 
   const day = new Date().toISOString().slice(0, 10);
-  const { notifyOwner } = await import('../pipeline/notify/index.js');
+  const { notifyOwner } = await import('../pipeline/notify/index');
   await notifyOwner({
     kind: 'JOB_FAILURE',
     subject: `MRR Validator: job "${job}" is failing repeatedly`,
@@ -163,7 +163,7 @@ async function maybeAlertRepeatedFailure(job: string): Promise<void> {
 
 async function alertBudget(err: BudgetExceededError): Promise<void> {
   const period = new Date().toISOString().slice(0, 7);
-  const { notifyOwner } = await import('../pipeline/notify/index.js');
+  const { notifyOwner } = await import('../pipeline/notify/index');
   await notifyOwner({
     kind: 'COST_LIMIT',
     subject: `MRR Validator: ${err.budgetKind} budget reached`,

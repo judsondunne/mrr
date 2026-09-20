@@ -14,20 +14,20 @@
  *   4. Nothing goes out outside the configured local sending window.
  *   5. In shadow mode the provider is never even reached.
  */
-import { getConfig, isShadowMode, type Config } from '../../lib/config.js';
-import { getDb, many, one, toNumber } from '../../lib/db.js';
-import { AppError, BudgetExceededError, isRetryable } from '../../lib/errors.js';
-import { createLogger } from '../../lib/logger.js';
-import { assertBudget, remainingDailyEmailQuota } from '../../lib/cost.js';
-import { recordAudit, transitionOpportunity } from '../../lib/audit.js';
-import { assertCampaignTransition, type CampaignState } from '../../lib/state-machine.js';
-import { sendEmail } from '../../lib/email/index.js';
-import { assertCompliant, withHeaders, type ComposedMessage } from './compose.js';
-import { ComplianceError } from './errors.js';
-import { checkCampaignHealth } from './health.js';
-import { isCountryAllowed, isSuppressed, normalizeEmail, suppress } from './suppression.js';
-import { sendingWindowStatus } from './window.js';
-import type { SendResult } from './index.js';
+import { getConfig, isShadowMode, type Config } from '../../lib/config';
+import { getDb, many, one, toNumber } from '../../lib/db';
+import { AppError, BudgetExceededError, isRetryable } from '../../lib/errors';
+import { createLogger } from '../../lib/logger';
+import { assertBudget, remainingDailyEmailQuota } from '../../lib/cost';
+import { recordAudit, transitionOpportunity } from '../../lib/audit';
+import { assertCampaignTransition, type CampaignState } from '../../lib/state-machine';
+import { sendEmail } from '../../lib/email/index';
+import { assertCompliant, withHeaders, type ComposedMessage } from './compose';
+import { ComplianceError } from './errors';
+import { checkCampaignHealth } from '../../lib/campaign-health';
+import { isCountryAllowed, isSuppressed, normalizeEmail, suppress } from './suppression';
+import { sendingWindowStatus } from './window';
+import type { SendResult } from './index';
 
 const logger = createLogger('outreach:send');
 

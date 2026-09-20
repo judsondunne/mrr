@@ -36,25 +36,25 @@ export interface InboundResult {
 }
 
 /** Builds campaign + landing copy + drafts batch-1 messages. */
-export { prepareCampaigns } from './campaign.js';
+export { prepareCampaigns } from './campaign';
 
 /** Sends messages that are due, honouring every batch/budget/window rule. */
-export { sendDueMessages, flushPendingAutoReplies } from './send.js';
+export { sendDueMessages, flushPendingAutoReplies } from './send';
 
 /** Queues follow-ups for prospects that are eligible. Max 2, ever. */
-export { scheduleFollowups } from './followups.js';
+export { scheduleFollowups } from './followups';
 
 /**
  * Handles a Resend delivery-event webhook.
  * `rawBody` is the exact unparsed request body — required for signature verification.
  */
-export { handleDeliveryWebhook, handleInboundWebhook } from './webhooks.js';
+export { handleDeliveryWebhook, handleInboundWebhook } from './webhooks';
 
 /**
  * Adds an address/domain to the suppression list. Idempotent.
  * True when this address or its domain must never be emailed.
  */
-export { suppress, isSuppressed } from './suppression.js';
+export { suppress, isSuppressed } from './suppression';
 
 /**
  * Verifies a signed unsubscribe token and suppresses. Used by the web route.
@@ -65,20 +65,20 @@ export {
   buildUnsubscribeUrl,
   UNSUBSCRIBE_PATH,
   UNSUBSCRIBE_TOKEN_PARAM,
-} from './unsubscribe.js';
+} from './unsubscribe';
 
 // --- secondary surface used by the web/admin layers --------------------------
 
 /** Landing-page copy contract, so the web layer renders validated content. */
-export { LandingCopy, loadOffer, landingUrlFor, type OfferContext } from './offer.js';
+export { LandingCopy, loadOffer, landingUrlFor, type OfferContext } from './offer';
 
 /** Campaign health, exported so the dashboard can show why a campaign halted. */
-export { checkCampaignHealth, type HealthVerdict } from './health.js';
+export { checkCampaignHealth, type HealthVerdict } from '../../lib/campaign-health';
 
 /** Sending-window helpers, exported for /setup-check and the dashboard. */
-export { isWithinSendingWindow, sendingWindowStatus, type WindowStatus } from './window.js';
+export { isWithinSendingWindow, sendingWindowStatus, type WindowStatus } from './window';
 
 /** Commitment writing, shared with the landing-page signup route. */
-export { recordCommitments } from './classify.js';
+export { recordCommitments } from './classify';
 
-export { ComplianceError, ReplySafetyError, WebhookVerificationError } from './errors.js';
+export { ComplianceError, ReplySafetyError, WebhookVerificationError } from './errors';

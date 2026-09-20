@@ -8,24 +8,24 @@
  *     intent score, and an enthusiastic adjective are all worth nothing.
  */
 import { describe, it, expect, afterEach } from 'vitest';
-import { freshDb, teardown, insertOpportunity, insertCampaign } from '../helpers.js';
-import { resetConfigCache } from '../../src/lib/config.js';
-import type { ReplyAnalysis } from '../../src/lib/contracts.js';
+import { freshDb, teardown, insertOpportunity, insertCampaign } from '../helpers';
+import { resetConfigCache } from '../../src/lib/config';
+import type { ReplyAnalysis } from '../../src/lib/contracts';
 import {
   classifyDeterministic,
   classifyReply,
   commitmentTypesFor,
   recordCommitments,
-} from '../../src/pipeline/outreach/classify.js';
+} from '../../src/pipeline/outreach/classify';
 import {
   checkReplySafety,
   draftAutoReply,
   shouldAttemptAutoReply,
   commitmentClose,
-} from '../../src/pipeline/outreach/reply-agent.js';
-import { buildLandingCopy, landingUrlFor, type OfferContext } from '../../src/pipeline/outreach/offer.js';
-import { parseInboundBody, stripHtml } from '../../src/pipeline/outreach/inbound-parse.js';
-import type { Wedge } from '../../src/lib/contracts.js';
+} from '../../src/pipeline/outreach/reply-agent';
+import { buildLandingCopy, landingUrlFor, type OfferContext } from '../../src/pipeline/outreach/offer';
+import { parseInboundBody, stripHtml } from '../../src/pipeline/outreach/inbound-parse';
+import type { Wedge } from '../../src/lib/contracts';
 
 const ORIGINAL_ENV = { ...process.env };
 

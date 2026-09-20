@@ -6,7 +6,7 @@
  * "missing", which makes gate check EXPLAINABLE_V1_REQUIREMENTS fail loudly
  * instead of letting a half-specified product through.
  */
-import { getDb, toNumber } from '../../lib/db.js';
+import { getDb, toNumber } from '../../lib/db';
 
 export interface OpportunityRow {
   id: string;
