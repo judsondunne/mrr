@@ -1,0 +1,9 @@
+{
+  "id": "feature-request-case-packs",
+  "subject": "Re: minimum order rules for Driftwood Mercantile",
+  "body": "We'd need it to also handle case-pack quantities, not just unit counts. Without that it wouldn't change anything for us.",
+  "expected": "FEATURE_REQUIREMENT",
+  "alsoAccepted": [],
+  "ambiguous": false,
+  "note": "A requirement, not a commitment. This is the signal that should reshape the wedge, and it must not be scored as interest."
+}

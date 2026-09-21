@@ -1,0 +1,9 @@
+{
+  "id": "strong-interest-first-install",
+  "subject": "Re: minimum order rules for Cedar Lane Trade",
+  "body": "This is exactly the problem we have every week. We'd like one of the first installs if you are taking names.",
+  "expected": "INTERESTED_STRONG",
+  "alsoAccepted": [],
+  "ambiguous": false,
+  "note": "Names the problem and asks for access. Strong interest, but note there is no price reaction here."
+}

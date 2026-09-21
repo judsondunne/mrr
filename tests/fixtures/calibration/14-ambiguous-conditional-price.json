@@ -1,0 +1,9 @@
+{
+  "id": "ambiguous-conditional-price",
+  "subject": "Re: minimum order rules for Appleyard & Co",
+  "body": "If it did case-pack quantities we'd probably pay $19/month for it, but as described it wouldn't cover our main issue.",
+  "expected": "FEATURE_REQUIREMENT",
+  "alsoAccepted": ["INTERESTED_WEAK"],
+  "ambiguous": true,
+  "note": "GENUINELY AMBIGUOUS. A conditional, hedged 'probably pay' sits between a requirement and weak interest. PRICE_ACCEPTED is deliberately NOT an accepted answer: 'probably, if' is not acceptance, and the deterministic commitment rules would refuse to count it either way."
+}

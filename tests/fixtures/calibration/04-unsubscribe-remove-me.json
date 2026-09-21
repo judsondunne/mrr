@@ -1,0 +1,9 @@
+{
+  "id": "unsubscribe-remove-me",
+  "subject": "Re: quick question about Millbrook Provisions",
+  "body": "Please remove me from your list. Thanks.",
+  "expected": "UNSUBSCRIBE",
+  "alsoAccepted": [],
+  "ambiguous": false,
+  "note": "Compliance case. Decided by regex before any model runs, so this fixture stays correct even during an LLM outage or a budget halt."
+}

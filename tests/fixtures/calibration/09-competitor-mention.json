@@ -1,0 +1,9 @@
+{
+  "id": "competitor-incumbent-in-place",
+  "subject": "Re: minimum order rules for Appleyard & Co",
+  "body": "We already use Wholesale Club for this, though it is clunky and we pay for a lot we never touch.",
+  "expected": "USING_COMPETITOR",
+  "alsoAccepted": [],
+  "ambiguous": false,
+  "note": "Category demand, not wedge demand. An incumbent with a grumbling customer is exactly the evidence that is easiest to over-read."
+}

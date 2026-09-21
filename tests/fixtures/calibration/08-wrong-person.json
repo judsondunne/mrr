@@ -1,0 +1,9 @@
+{
+  "id": "wrong-person-forwarded",
+  "subject": "Re: wholesale minimums at Millbrook Provisions",
+  "body": "I'm not the right person for this - our operations lead handles anything to do with wholesale ordering.",
+  "expected": "WRONG_PERSON",
+  "alsoAccepted": [],
+  "ambiguous": false,
+  "note": "Neither interest nor rejection. Treating it as a rejection would throw away a company that was never actually asked."
+}
