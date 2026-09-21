@@ -22,11 +22,15 @@ import { recordAudit } from '../../lib/audit';
 import type { CommitmentInput } from '../../lib/contracts';
 import { classifyReply, commitmentTypesFor, recordCommitments } from './classify';
 import { parseAddress, parseInboundBody, referencedMessageIds } from './inbound-parse';
-import { loadOffer } from './offer';
+import { loadOfferForProspect } from './offer';
 import { draftAutoReply } from './reply-agent';
 import { autoReplyIdempotencyKey, insertDraftMessage, prospectContextFromRow, type ProspectRow } from './drafts';
 import { sendDraftedMessageNow } from './send';
 import { companyKeyFor, isSuppressed, normalizeEmail, suppress } from './suppression';
+import { recordInboundTurn, recordOutboundTurn, setCommitmentLevel } from './conversation';
+import { extractObjections, recordObjections } from './objections';
+import { recordRoleOutcomeFor } from './contact-role';
+import { markEngaged, startCooldown } from '../../autonomy/company';
 import type { InboundResult, WebhookResult } from './index';
 
 const logger = createLogger('outreach:webhooks');
@@ -247,6 +251,7 @@ export async function handleDeliveryWebhook(
             WHERE id = $1 AND status IN ('SENT','SENDING','DELIVERED')`,
           [message.id],
         );
+        await recordRoleOutcomeFor({ campaignId: message.campaign_id, email: recipient }, { delivered: 1 });
       }
       break;
     }
@@ -259,6 +264,9 @@ export async function handleDeliveryWebhook(
             WHERE id = $1`,
           [message.id, bounceType],
         );
+      }
+      if (message) {
+        await recordRoleOutcomeFor({ campaignId: message.campaign_id, email: recipient }, { bounced: 1 });
       }
       if (bounceType === 'HARD' && recipient) {
         await suppress({ email: recipient, reason: 'HARD_BOUNCE', notes: event.data.bounce?.message });
@@ -437,7 +445,11 @@ export async function handleInboundWebhook(
     prospectId: prospectRow?.id ?? null,
   });
 
-  const offer = original?.campaign_id ? await loadOffer(original.campaign_id) : null;
+  // The offer AS THIS PROSPECT SAW IT — re-quoted at the price permanently
+  // assigned to them, so a thread can never change its number mid-conversation.
+  const offer = original?.campaign_id
+    ? await loadOfferForProspect(original.campaign_id, prospectRow?.id ?? null)
+    : null;
   const classification = await classifyReply({
     text: body.cleaned,
     subject,
@@ -474,8 +486,55 @@ export async function handleInboundWebhook(
   // --- opt-out is handled before anything else ---
   let suppressed = false;
   if (analysis.classification === 'UNSUBSCRIBE') {
+    // suppress() also marks the COMPANY never-contact, terminally.
     await suppress({ email: fromAddress, reason: 'EXPLICIT_STOP', notes: 'opt-out in reply body' });
     suppressed = true;
+  }
+
+  const companyKey = companyKeyFor({ domain: prospectRow?.domain ?? null, email: fromAddress });
+
+  // --- structured objections: deterministic extraction, SQL aggregation ---
+  const objections = extractObjections({ text: body.cleaned, analysis });
+  if (objections.length > 0) {
+    await recordObjections({
+      campaignId: original?.campaign_id ?? null,
+      opportunityId: offer?.opportunityId ?? null,
+      prospectId: prospectRow?.id ?? null,
+      messageId: inboundId,
+      companyKey,
+      objections,
+      evidenceText: body.cleaned,
+    });
+  }
+
+  // --- conversation memory ---
+  let conversation = null;
+  if (original?.campaign_id && prospectRow) {
+    conversation = await recordInboundTurn({
+      campaignId: original.campaign_id,
+      prospectId: prospectRow.id,
+      threadId: original.thread_id ?? original.id,
+      text: body.cleaned,
+      analysis,
+      objections: objections.map((o) => o.kind),
+    });
+  }
+
+  await recordRoleOutcomeFor({ campaignId: original?.campaign_id ?? null, email: fromAddress }, { replies: 1 });
+
+  // --- cross-campaign fatigue from what they actually said ---
+  if (!suppressed && companyKey !== 'unknown') {
+    if (analysis.classification === 'NOT_INTERESTED') {
+      await startCooldown({
+        companyKey,
+        days: cfg.company.negativeReplyCooldownDays,
+        reason: `negative reply (${analysis.classification})`,
+      });
+    } else if (original?.campaign_id && conversation && conversation.commitmentLevel !== 'NONE') {
+      // A live conversation belongs to ONE experiment. No other campaign may
+      // pull this business into an unrelated test while it is running.
+      await markEngaged(companyKey, original.campaign_id);
+    }
   }
 
   if (prospectRow) {
@@ -494,7 +553,6 @@ export async function handleInboundWebhook(
   if (!suppressed && campaignId) {
     const types = commitmentTypesFor(analysis, body.cleaned);
     if (types.length > 0) {
-      const companyKey = companyKeyFor({ domain: prospectRow?.domain ?? null, email: fromAddress });
       const inputs: CommitmentInput[] = types.map((type) => ({
         campaignId,
         prospectId: prospectRow?.id ?? null,
@@ -514,6 +572,8 @@ export async function handleInboundWebhook(
             WHERE id = $1 AND status NOT IN ('SUPPRESSED','BOUNCED')`,
           [prospectRow.id],
         );
+        await setCommitmentLevel(campaignId, prospectRow.id, 'COMMITTED');
+        await recordRoleOutcomeFor({ campaignId, email: fromAddress }, { commitments: 1 });
       }
     }
   }
@@ -531,8 +591,18 @@ export async function handleInboundWebhook(
         offer,
         prospect,
         subject,
+        // The memory that stops it repeating itself or re-asking.
+        conversation,
       });
       if (decision.message) {
+        await recordOutboundTurn({
+          campaignId: offer.campaignId,
+          prospectId: prospect.id,
+          answered: decision.answered,
+          priceQuoted: decision.quotedPrice,
+          requestedFeatures: decision.featureRequests,
+          awaitingReply: true,
+        });
         const draftId = await insertDraftMessage({
           campaignId: offer.campaignId,
           prospectId: prospect.id,

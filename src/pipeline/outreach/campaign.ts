@@ -23,13 +23,17 @@ import { ComplianceError } from './errors';
 import {
   buildLandingCopy,
   landingUrlFor,
+  offerAtPrice,
   offerFromRow,
   parseJsonColumn,
   type LandingCopy,
   type OfferContext,
 } from './offer';
 import { idempotencyKeyFor, insertDraftMessage, prospectContextFromRow, type ProspectRow } from './drafts';
-import { isCountryAllowed, suppress } from './suppression';
+import { companyKeyFor, isCountryAllowed, suppress } from './suppression';
+import { ensureConversation, recordOutboundTurn } from './conversation';
+import { assignPrice } from '../../autonomy/pricing';
+import { canContactCompanyForCampaign, linkProspectToCompany } from '../../autonomy/company';
 import type { PrepareResult } from './index';
 
 const logger = createLogger('outreach:campaign');
@@ -118,7 +122,29 @@ export async function draftInitialMessages(offer: OfferContext, limit: number): 
       continue;
     }
 
-    const message = await composeInitialMessage(prospect, offer);
+    // Company fatigue, checked here AND again at send time — same belt-and-
+    // braces as the country rule, because a cooldown can start in between.
+    const companyKey = await linkProspectToCompany({
+      prospectId: prospect.id,
+      companyKey: companyKeyFor({ domain: prospect.domain, email: prospect.contactEmail }),
+      displayName: prospect.companyName,
+    });
+    const eligibility = await canContactCompanyForCampaign(companyKey, offer.campaignId);
+    if (!eligibility.allowed) {
+      logger.info('not drafting: company fatigue', {
+        companyKey,
+        state: eligibility.state,
+        reason: eligibility.reason,
+      });
+      continue;
+    }
+
+    // ONE price, assigned once and persisted, before a single word is written.
+    // Every later quote — follow-ups, auto-replies — reads it back.
+    const price = await assignPrice({ campaignId: offer.campaignId, prospectId: prospect.id });
+    const prospectOffer = offerAtPrice(offer, price);
+
+    const message = await composeInitialMessage(prospect, prospectOffer);
     if (!message) continue;
 
     try {
@@ -141,7 +167,16 @@ export async function draftInitialMessages(offer: OfferContext, limit: number): 
       message,
       idempotencyKey: idempotencyKeyFor(offer.campaignId, prospect.id, 0),
     });
-    if (id) drafted += 1;
+    if (id) {
+      drafted += 1;
+      await ensureConversation({ campaignId: offer.campaignId, prospectId: prospect.id, threadId: id });
+      await recordOutboundTurn({
+        campaignId: offer.campaignId,
+        prospectId: prospect.id,
+        priceQuoted: price,
+        awaitingReply: false,
+      });
+    }
   }
   return drafted;
 }

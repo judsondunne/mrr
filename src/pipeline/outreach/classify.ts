@@ -165,16 +165,23 @@ export async function classifyReply(params: {
   try {
     const res = await llmComplete({
       tier: 'fast',
+      // Reading inbound email is REPLY spend, not RESEARCH.
+      phase: 'REPLY',
       task: 'outreach.classify_reply',
       schemaName: 'ReplyAnalysis',
       maxTokens: 800,
       schema: ReplyAnalysis,
       system: CLASSIFY_SYSTEM,
       user: JSON.stringify({
-        subject: params.subject ?? '',
         offer: params.offerSummary ?? '',
-        reply: (params.text ?? '').slice(0, 6000),
       }),
+      // Subject and body are attacker-controlled. They go through the
+      // untrusted channel so the LLM layer fences them as DATA every time,
+      // rather than each call site remembering to.
+      untrusted: {
+        inbound_subject: (params.subject ?? '').slice(0, 300),
+        inbound_email: (params.text ?? '').slice(0, 6000),
+      },
     });
     // A model may not override an opt-out; that direction is one-way only.
     const analysis = res.data.classification === 'UNSUBSCRIBE'

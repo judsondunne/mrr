@@ -25,8 +25,19 @@ import { sendEmail } from '../../lib/email/index';
 import { assertCompliant, withHeaders, type ComposedMessage } from './compose';
 import { ComplianceError } from './errors';
 import { checkCampaignHealth } from '../../lib/campaign-health';
-import { isCountryAllowed, isSuppressed, normalizeEmail, suppress } from './suppression';
+import { companyKeyFor, isCountryAllowed, isSuppressed, normalizeEmail, suppress } from './suppression';
 import { sendingWindowStatus } from './window';
+import {
+  evaluateDeliverability,
+  getSendAllowance,
+  isSendingPaused,
+  maybeAdvanceRamp,
+  recordFirstSend,
+  resumeSendingIfRecovered,
+} from '../../autonomy/deliverability';
+import { canContactCompanyForCampaign, recordContact, upsertCompany } from '../../autonomy/company';
+import { recordRoleOutcomeFor } from './contact-role';
+import { recordOutboundTurn } from './conversation';
 import type { SendResult } from './index';
 
 const logger = createLogger('outreach:send');
@@ -62,7 +73,13 @@ interface SendableRow {
   contact_email: string | null;
   country: string | null;
   prospect_status: string | null;
+  domain: string | null;
 }
+
+/** The columns every send path needs. One definition, so they cannot drift. */
+const SENDABLE_COLUMNS = `m.id, m.campaign_id, m.prospect_id, m.subject, m.body, m.thread_id,
+            m.sequence_step,
+            p.contact_email, p.country, p.status AS prospect_status, p.domain`;
 
 // --- batch planning ----------------------------------------------------------
 
@@ -274,6 +291,34 @@ export async function sendOneMessage(row: SendableRow, cfg: Config): Promise<{ o
     return { outcome: 'SKIPPED', simulated: false };
   }
 
+  // CROSS-CAMPAIGN FATIGUE. One real business is one company, and an
+  // unrelated experiment does not get to email it again inside the cooldown.
+  //
+  // An auto-reply (sequence_step < 0) answers somebody who wrote to US, which
+  // is not cold outreach — so only a TERMINAL NEVER_CONTACT stops that. Cold
+  // outreach and follow-ups are stopped by any fatigue verdict.
+  const companyKey = companyKeyFor({ domain: row.domain, email });
+  const eligibility = await canContactCompanyForCampaign(companyKey, row.campaign_id);
+  if (!eligibility.allowed && (eligibility.state === 'NEVER_CONTACT' || row.sequence_step >= 0)) {
+    const reason = `COMPANY_${eligibility.state}:${eligibility.reason ?? 'blocked'}`;
+    await skipMessage(row.id, reason.slice(0, 400));
+    await recordAudit({
+      entityType: 'message',
+      entityId: row.id,
+      eventType: 'DECISION',
+      actor: 'outreach:send_due_messages',
+      reason: `skipped: ${reason}`,
+      detail: {
+        campaignId: row.campaign_id,
+        companyKey,
+        contactState: eligibility.state,
+        cooldownUntil: eligibility.cooldownUntil?.toISOString() ?? null,
+      },
+    });
+    logger.info('company fatigue: not emailing this business', { companyKey, reason });
+    return { outcome: 'SKIPPED', simulated: false };
+  }
+
   const message = rebuildMessage(row, email);
   try {
     assertCompliant(message, cfg);
@@ -299,6 +344,9 @@ export async function sendOneMessage(row: SendableRow, cfg: Config): Promise<{ o
     const result = await sendWithRetry({ ...message, ...threadRef });
     await markSent(row.id, result.providerMessageId);
     if (row.prospect_id) await markProspectContacted(row.prospect_id);
+    // Starts the domain warm-up clock on the very first real hand-off.
+    await recordFirstSend();
+    await recordSendBookkeeping(row, email, companyKey);
     await recordAudit({
       entityType: 'message',
       entityId: row.id,
@@ -333,6 +381,34 @@ async function threadReferenceFor(row: SendableRow): Promise<{ inReplyTo?: strin
   return { inReplyTo: parent.provider_message_id, references: parent.provider_message_id };
 }
 
+/**
+ * Everything that has to be remembered about a message that actually went out:
+ * the company was contacted (fatigue), the contact role got one more data
+ * point, and the conversation is now waiting on them.
+ *
+ * Bookkeeping must never be able to undo a send, so a failure here is logged
+ * and swallowed — the email has already left.
+ */
+async function recordSendBookkeeping(row: SendableRow, email: string, companyKey: string): Promise<void> {
+  try {
+    await upsertCompany({ companyKey });
+    // Cold outreach and follow-ups age the company; an auto-reply does not.
+    if (row.sequence_step >= 0) {
+      await recordContact({ companyKey, campaignId: row.campaign_id });
+    }
+    await recordRoleOutcomeFor({ campaignId: row.campaign_id, email }, { sent: 1 });
+    if (row.prospect_id) {
+      await recordOutboundTurn({
+        campaignId: row.campaign_id,
+        prospectId: row.prospect_id,
+        awaitingReply: true,
+      });
+    }
+  } catch (err) {
+    logger.warn('post-send bookkeeping failed', { messageId: row.id, err: String(err) });
+  }
+}
+
 async function markProspectContacted(prospectId: string): Promise<void> {
   const db = await getDb();
   await db.query(
@@ -349,9 +425,7 @@ async function markProspectContacted(prospectId: string): Promise<void> {
 async function loadSendableRows(campaignId: string, limit: number): Promise<SendableRow[]> {
   if (limit <= 0) return [];
   return many<SendableRow>(
-    `SELECT m.id, m.campaign_id, m.prospect_id, m.subject, m.body, m.thread_id,
-            m.sequence_step,
-            p.contact_email, p.country, p.status AS prospect_status
+    `SELECT ${SENDABLE_COLUMNS}
        FROM messages m
        LEFT JOIN prospects p ON p.id = m.prospect_id
       WHERE m.campaign_id = $1
@@ -405,7 +479,23 @@ async function sendForCampaign(campaign: CampaignRow, dailyRemaining: number, cf
     return emptyResult(campaign.id, next ? `BATCH_COMPLETE:${next}` : 'BATCH_QUOTA_REACHED');
   }
 
-  const allowance = Math.max(0, Math.min(target - alreadySent, dailyRemaining));
+  // VOLUME IS EARNED. The lifecycle above says which batch we are in; this
+  // says how much of it we have actually earned the right to send. One ramp
+  // step is unlocked per healthy batch, and never more than one per run.
+  await maybeAdvanceRamp(campaign.id);
+  const earned = await getSendAllowance(campaign.id);
+  if (earned.allowed <= 0) {
+    logger.info('nothing earned yet for this campaign', {
+      campaignId: campaign.id,
+      reason: earned.reason,
+      campaignCap: earned.campaignCap,
+      domainCapToday: earned.domainCapToday,
+      warmupDay: earned.warmupDay,
+    });
+    return emptyResult(campaign.id, earned.reason ?? 'NO_ALLOWANCE');
+  }
+
+  const allowance = Math.max(0, Math.min(target - alreadySent, dailyRemaining, earned.allowed));
   const rows = await loadSendableRows(campaign.id, allowance);
 
   // SHADOW MODE. The drafts stay exactly as they are, fully inspectable, and
@@ -487,6 +577,20 @@ export async function sendDueMessages(): Promise<SendResult[]> {
     return [];
   }
 
+  // Domain reputation is judged BETWEEN batches, before anything else goes
+  // out. A breach pauses the whole domain — this is control plane, and there
+  // is no model, flag or caller that can wave it through.
+  const deliverability = await evaluateDeliverability();
+  if (deliverability.shouldPause) {
+    logger.error('deliverability breach; sending is paused', { reason: deliverability.reason });
+  }
+  await resumeSendingIfRecovered();
+  const pause = await isSendingPaused();
+  if (pause.paused) {
+    logger.warn('sending is paused', { until: pause.until?.toISOString(), reason: pause.reason });
+    return [];
+  }
+
   const placeholders = SENDABLE_STATES.map((_, i) => `$${i + 1}`).join(',');
   const campaigns = await many<CampaignRow>(
     `SELECT id, opportunity_id, state, landing_slug
@@ -526,6 +630,7 @@ export async function flushPendingAutoReplies(limit = 25): Promise<{
 }> {
   const cfg = getConfig();
   if (cfg.killSwitch || isShadowMode(cfg)) return { attempted: 0, sent: 0, skipped: 0 };
+  if ((await isSendingPaused()).paused) return { attempted: 0, sent: 0, skipped: 0 };
 
   const rows = await many<{ id: string }>(
     `SELECT id FROM messages
@@ -564,12 +669,15 @@ export async function sendDraftedMessageNow(messageId: string): Promise<{ sent: 
   const window = sendingWindowStatus(new Date(), cfg);
   if (!window.ok) return { sent: false, reason: window.reason };
 
+  // A paused domain sends nothing at all — not even a reply to someone who
+  // wrote to us. Reputation damage is not selective.
+  const pause = await isSendingPaused();
+  if (pause.paused) return { sent: false, reason: `DELIVERABILITY_PAUSED:${pause.reason ?? 'UNKNOWN'}` };
+
   if ((await remainingDailyEmailQuota()) <= 0) return { sent: false, reason: 'DAILY_CAP_REACHED' };
 
   const row = await one<SendableRow>(
-    `SELECT m.id, m.campaign_id, m.prospect_id, m.subject, m.body, m.thread_id,
-            m.sequence_step,
-            p.contact_email, p.country, p.status AS prospect_status
+    `SELECT ${SENDABLE_COLUMNS}
        FROM messages m
        LEFT JOIN prospects p ON p.id = m.prospect_id
       WHERE m.id = $1 AND m.direction = 'OUTBOUND' AND m.status = 'DRAFTED'`,
