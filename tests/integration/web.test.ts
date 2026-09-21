@@ -232,19 +232,25 @@ describe('landing page', () => {
     expect(view?.priceLabel).toBe('$19');
     expect(view?.ctaLabel).toBe('Join the pilot at $19/month');
 
-    // Assert on the price-bearing fields specifically. Scanning the whole
-    // serialized view for "999" was flaky: opportunity/campaign ids are random,
+    // Scanning the whole serialized view for "999" was flaky: ids are random,
     // so a run whose generated id happened to contain "999" failed for no real
-    // reason. These are the only places a fabricated price could surface.
-    for (const field of [
-      view?.priceLabel,
-      view?.ctaLabel,
-      view?.priceCheckboxLabel,
-      String(view?.copy.priceMonthly ?? ''),
-      String((view?.copy as { price?: unknown } | undefined)?.price ?? ''),
-    ]) {
-      expect(field ?? '').not.toContain('999');
+    // reason. Assert the actual guarantee instead.
+    //
+    // The price the page shows comes from the campaign row, and only from
+    // there. Every rendered price string is derived from view.priceMonthly:
+    expect(view?.priceMonthly).toBe(19);
+    for (const rendered of [view?.priceLabel, view?.ctaLabel, view?.priceCheckboxLabel]) {
+      expect(rendered ?? '').not.toContain('999');
     }
+
+    // And the stronger, structural half: the copy object the LLM can influence
+    // has no price field at all, so generated copy cannot carry a price even
+    // in principle. This fails at compile time if someone adds one.
+    const copyKeys = Object.keys(view?.copy ?? {});
+    expect(copyKeys).not.toContain('priceMonthly');
+    expect(copyKeys).not.toContain('price');
+    // Nothing anywhere in the copy text mentions the bogus figure either.
+    expect(JSON.stringify(view?.copy ?? {})).not.toContain('999');
   });
 
   it('falls back to stored wedge/offer data instead of inventing copy', async () => {
