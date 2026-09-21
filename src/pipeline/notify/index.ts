@@ -8,6 +8,11 @@
  * complete", "campaign started", "50 emails sent" or "10 people replied". That
  * is what the logs and the dashboard are for. If you are about to add one,
  * don't: an owner who gets progress emails stops reading the one that matters.
+ *
+ * Three things must be true before the validated-opportunity email can leave:
+ * the claims behind it are traceable, the platform can still do what the wedge
+ * needs, and none of the evidence has gone stale. Each is checked here, each
+ * blocks the send on its own, and each records why.
  */
 import { getConfig } from '../../lib/config';
 import { getDb } from '../../lib/db';
@@ -16,6 +21,12 @@ import { createLogger, errorToFields } from '../../lib/logger';
 import { recordAudit } from '../../lib/audit';
 import { sendEmail } from '../../lib/email/index';
 import type { NotificationKind } from '../../lib/contracts';
+import {
+  backfillEvidenceClaims,
+  evidenceIsCurrent,
+  refreshStaleEvidence,
+} from '../../autonomy/provenance';
+import { revalidateFeasibility } from '../../autonomy/feasibility';
 import { renderReadyToBuildEmail } from './render';
 import { assertNoGuaranteeLanguage } from './claims';
 
@@ -120,6 +131,53 @@ export async function notifyValidatedOpportunities(): Promise<{ sent: number }> 
         logger.debug('owner already notified for this opportunity', { opportunityId: opportunity.id });
         continue;
       }
+
+      // 1. PROVENANCE. An opportunity that predates evidence_claims still has
+      //    competitors, reviews and commitments, and every one of those rows
+      //    is a source in its own right. Backfill is idempotent.
+      await backfillEvidenceClaims(opportunity.id);
+
+      // 2. FEASIBILITY, revalidated the moment before the owner is told to
+      //    build. Never recommend a product whose key API may not exist. A
+      //    failed check has already recorded a blocker by this point.
+      const feasibility = await revalidateFeasibility(opportunity.id);
+      if (!feasibility.feasible) {
+        logger.warn('owner notification blocked: feasibility revalidation failed', {
+          opportunityId: opportunity.id,
+          blockers: feasibility.blockers,
+        });
+        await recordAudit({
+          entityType: 'opportunity',
+          entityId: opportunity.id,
+          eventType: 'DECISION',
+          actor: ACTOR,
+          reason: 'owner notification blocked: feasibility revalidation failed',
+          detail: { blockers: feasibility.blockers, checks: feasibility.checks },
+        });
+        continue;
+      }
+
+      // 3. STALENESS. Re-check anything past its TTL, then refuse to make a
+      //    build recommendation on facts we can no longer stand behind.
+      await refreshStaleEvidence(opportunity.id);
+      const evidence = await evidenceIsCurrent(opportunity.id);
+      if (!evidence.current) {
+        logger.warn('owner notification blocked: required evidence is not current', {
+          opportunityId: opportunity.id,
+          missing: evidence.missing,
+          stale: evidence.stale,
+        });
+        await recordAudit({
+          entityType: 'opportunity',
+          entityId: opportunity.id,
+          eventType: 'DECISION',
+          actor: ACTOR,
+          reason: 'owner notification blocked: required evidence is not current',
+          detail: { missing: evidence.missing, stale: evidence.stale },
+        });
+        continue;
+      }
+
       const { subject, body } = await renderReadyToBuildEmail(opportunity.id);
       assertNoGuaranteeLanguage(body, `READY_TO_BUILD email for ${opportunity.id}`);
 

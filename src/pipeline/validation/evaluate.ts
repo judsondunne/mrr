@@ -25,6 +25,7 @@ import {
   getWrongPersonCount,
 } from './counts';
 import { evaluateGateAndMint } from './gate';
+import { evaluateRevenueIntent, persistValidationLevel } from './revenue-intent';
 import type { CampaignCounts, GateEvaluation, HealthVerdict } from './types';
 import { checkCampaignHealth } from '../../lib/campaign-health';
 
@@ -343,7 +344,32 @@ async function evaluateOne(row: ActiveCampaignRow, extremeValidation: boolean): 
       'COMPLETE',
       'opportunity reached READY_TO_BUILD',
     );
-    logger.info('opportunity reached READY_TO_BUILD', { opportunityId, campaignId });
+
+    // Which tier the evidence actually reached. This is recorded AFTER the
+    // transitions above and is never an input to them: the ten-check gate
+    // decides the state, and this only labels how strong the proof was.
+    const revenueIntent = await evaluateRevenueIntent(opportunityId, evaluation);
+    await persistValidationLevel(opportunityId, revenueIntent.level);
+    await recordAudit({
+      entityType: 'opportunity',
+      entityId: opportunityId,
+      eventType: 'DECISION',
+      actor: ACTOR,
+      reason: `validation level recorded: ${revenueIntent.level}`,
+      detail: {
+        campaignId,
+        level: revenueIntent.level,
+        counts: revenueIntent.counts,
+        checks: revenueIntent.checks,
+        unmetChecks: revenueIntent.unmetChecks.map((c) => c.id),
+      },
+    });
+
+    logger.info('opportunity reached READY_TO_BUILD', {
+      opportunityId,
+      campaignId,
+      validationLevel: revenueIntent.level,
+    });
     return evaluation;
   }
 

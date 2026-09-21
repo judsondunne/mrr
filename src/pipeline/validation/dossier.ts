@@ -18,14 +18,17 @@ import {
 import {
   getCompetitorEvidence,
   getCustomerDerivedRequirements,
+  getEvidenceRows,
   getStrongestEvidence,
   getWaitingCompanies,
   type CompetitorEvidence,
   type CustomerRequirement,
+  type EvidenceRowRef,
   type ProspectEvidenceItem,
   type WaitingCompany,
 } from './evidence';
 import { evaluateGate } from './gate';
+import { evaluateRevenueIntent } from './revenue-intent';
 import {
   loadOpportunity,
   parseWedge,
@@ -34,7 +37,12 @@ import {
   type OpportunityRow,
   type WedgeFacts,
 } from './opportunity';
-import { EMPTY_COUNTS, type CampaignCounts, type GateEvaluation } from './types';
+import {
+  EMPTY_COUNTS,
+  type CampaignCounts,
+  type GateEvaluation,
+  type RevenueIntentEvaluation,
+} from './types';
 
 export interface CampaignFacts {
   id: string;
@@ -59,10 +67,14 @@ export interface ValidationDossier {
   /** Unique companies whose commitment was neither price nor install/trial. */
   otherCommitmentCompanies: number;
   evidence: ProspectEvidenceItem[];
+  /** Every citable row: all commitments plus all inbound replies. */
+  evidenceRows: EvidenceRowRef[];
   requirements: CustomerRequirement[];
   competitors: CompetitorEvidence[];
   waitingCompanies: WaitingCompany[];
   evaluation: GateEvaluation;
+  /** Which of the two tiers the evidence reached. Strictly stronger than the gate. */
+  revenueIntent: RevenueIntentEvaluation;
 }
 
 interface CampaignRow {
@@ -115,6 +127,7 @@ export async function collectDossier(opportunityId: string): Promise<ValidationD
     competitors,
     waitingCompanies,
     evaluation,
+    evidenceRows,
   ] = await Promise.all([
       campaignId
         ? getCampaignCounts(campaignId)
@@ -134,7 +147,10 @@ export async function collectDossier(opportunityId: string): Promise<ValidationD
       getCompetitorEvidence(opportunityId),
       campaignId ? getWaitingCompanies(campaignId) : Promise.resolve([]),
       evaluateGate(opportunityId),
+      campaignId ? getEvidenceRows(campaignId) : Promise.resolve([]),
     ]);
+
+  const revenueIntent = await evaluateRevenueIntent(opportunityId, evaluation);
 
   return {
     opportunity,
@@ -147,9 +163,11 @@ export async function collectDossier(opportunityId: string): Promise<ValidationD
     installOrTrialCompanies,
     otherCommitmentCompanies,
     evidence,
+    evidenceRows,
     requirements,
     competitors,
     waitingCompanies,
     evaluation,
+    revenueIntent,
   };
 }

@@ -7,6 +7,9 @@
  *   2. FIRST REVENUE MATH is labelled arithmetic, never a forecast.
  *   3. The rendered body is scanned for promise language and the render throws
  *      if any survived. "Guaranteed MRR" can never be sent.
+ *   4. The two validation levels are never blurred. The subject line alone
+ *      tells the owner which one this is, and the VALIDATION LEVEL section
+ *      states exactly what the weaker one is still missing.
  */
 import { getConfig } from '../../lib/config';
 import { AppError } from '../../lib/errors';
@@ -60,6 +63,52 @@ export interface RenderedEmail {
 }
 
 /**
+ * Subject lines, one per validation level. The stronger one is deliberately a
+ * different sentence rather than a decorated version of the weaker one, so the
+ * two can never be mistaken for each other in an inbox.
+ */
+export const SUBJECT_BY_LEVEL = {
+  VALIDATED_COMMITMENT: '🚨 VALIDATED MRR OPPORTUNITY',
+  VALIDATED_REVENUE_INTENT: '🚨 VALIDATED REVENUE-INTENT OPPORTUNITY',
+} as const;
+
+/**
+ * What the stronger level requires, in one place, so the email can explain a
+ * near miss without restating thresholds the config owns.
+ */
+function validationLevelLines(d: ValidationDossier): string[] {
+  const r = d.revenueIntent;
+  const lines: string[] = [];
+
+  if (r.achieved) {
+    lines.push(
+      'VALIDATED_REVENUE_INTENT — the strongest level this system can report.',
+      'Companies did more than agree in writing:',
+      `  ${pad('Price-accepted pilots:')}${unit(r.counts.priceAcceptedReservations, 'unique company', 'unique companies')}`,
+      `  ${pad('Refundable deposits:')}${unit(r.counts.deposits, 'unique company', 'unique companies')}`,
+      `  ${pad('Payment methods:')}${unit(r.counts.paymentMethods, 'unique company', 'unique companies')}`,
+      `  ${pad('Immediate install asks:')}${unit(r.counts.immediateInstallRequests, 'unique company', 'unique companies')}`,
+    );
+  } else {
+    lines.push(
+      'VALIDATED_COMMITMENT — real companies committed in writing, and every',
+      'deterministic gate check passed.',
+      '',
+      'This is NOT the stronger VALIDATED_REVENUE_INTENT level. That one is still short:',
+    );
+    for (const check of r.unmetChecks) lines.push(`  - ${check.detail}`);
+    if (r.unmetChecks.length === 0) lines.push('  - (no unmet check recorded)');
+  }
+
+  lines.push(
+    '',
+    'Both levels describe what real companies already did. Neither is a statement',
+    'about money that has not been collected.',
+  );
+  return lines;
+}
+
+/**
  * Renders the READY_TO_BUILD email.
  *
  * Throws when the opportunity cannot be described exactly — no campaign, or a
@@ -94,7 +143,7 @@ export function renderFromDossier(d: ValidationDossier): RenderedEmail {
 
   const price = d.price;
   const sections: string[] = [];
-  const subject = `🚨 VALIDATED MRR OPPORTUNITY: ${name}`;
+  const subject = `${SUBJECT_BY_LEVEL[d.revenueIntent.level]}: ${name}`;
 
   sections.push(subject);
 
@@ -116,6 +165,9 @@ export function renderFromDossier(d: ValidationDossier): RenderedEmail {
 
   // --- PROPOSED PRICE ------------------------------------------------------
   sections.push(block('PROPOSED PRICE', [`${formatMoney(price)}/month`]));
+
+  // --- VALIDATION LEVEL ----------------------------------------------------
+  sections.push(block('VALIDATION LEVEL', validationLevelLines(d)));
 
   // --- REAL VALIDATION RESULTS --------------------------------------------
   const pilots = d.companiesByType.PILOT_SIGNUP ?? 0;
