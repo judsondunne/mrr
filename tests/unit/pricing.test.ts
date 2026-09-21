@@ -126,7 +126,12 @@ describe('expectedMrrPer100', () => {
 
   it('never divides by zero', () => {
     expect(expectedMrrPer100({ delivered: 0, commitments: 0, priceMonthly: 19 })).toBe(0);
-    expect(expectedMrrPer100({ delivered: 0, commitments: 2, priceMonthly: 10 })).toBe(200);
+    // Zero delivered is not "a 200% conversion rate", it is no evidence. The
+    // implementation used to clamp the denominator to 1, which made an unsent
+    // arm score higher than every real one.
+    expect(expectedMrrPer100({ delivered: 0, commitments: 2, priceMonthly: 10 })).toBe(0);
+    // And a rate can never exceed certainty.
+    expect(expectedMrrPer100({ delivered: 2, commitments: 5, priceMonthly: 10 })).toBe(1000);
   });
 });
 

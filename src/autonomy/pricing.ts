@@ -41,10 +41,20 @@ export function expectedMrrPer100(arm: {
   commitments: number;
   priceMonthly: number;
 }): number {
-  const delivered = Math.max(Number(arm.delivered) || 0, 1);
+  const delivered = Math.max(Number(arm.delivered) || 0, 0);
   const commitments = Math.max(Number(arm.commitments) || 0, 0);
   const price = Number(arm.priceMonthly) || 0;
-  return round4((commitments / delivered) * 100 * price);
+
+  // No deliveries means no evidence, so there is no rate to project. Clamping
+  // the denominator to 1 instead would have made an arm with zero delivered
+  // and one stray commitment score as if every prospect converted — the
+  // highest score of any arm, from the least evidence.
+  if (delivered === 0) return 0;
+
+  // A commitment rate above 1 is impossible; if the counts ever disagree,
+  // refuse to extrapolate past certainty.
+  const rate = Math.min(commitments / delivered, 1);
+  return round4(rate * 100 * price);
 }
 
 function round2(n: number): number {

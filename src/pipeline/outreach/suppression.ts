@@ -13,6 +13,7 @@ import { newId } from '../../lib/hash';
 import { createLogger } from '../../lib/logger';
 import { recordAudit } from '../../lib/audit';
 import { markNeverContact } from '../../autonomy/company';
+import { normalizeDomain as canonicalDomain } from '../prospecting/domain';
 
 const logger = createLogger('outreach:suppression');
 
@@ -37,15 +38,23 @@ export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-/** Lowercase, strip a leading "www." and any trailing dot. */
+/**
+ * Company-domain normalization, delegated to the ONE definition in
+ * src/pipeline/prospecting/domain.ts.
+ *
+ * This module used to have its own host-preserving version, which silently
+ * disagreed with the company-fatigue layer: `shop.acme.com` was a different
+ * company here and the same company there. That split meant suppression and
+ * unique-company counting could not both be right. There is now one answer,
+ * and it is the registrable-domain normalizer — which correctly keeps the
+ * tenant label on multi-tenant hosts, so `a.myshopify.com` and
+ * `b.myshopify.com` stay separate businesses.
+ *
+ * Falls back to a lowercased trim only when the input cannot be parsed as a
+ * host at all, so a malformed row can never crash the send loop.
+ */
 export function normalizeDomain(domain: string): string {
-  return domain
-    .trim()
-    .toLowerCase()
-    .replace(/^https?:\/\//, '')
-    .replace(/\/.*$/, '')
-    .replace(/^www\./, '')
-    .replace(/\.$/, '');
+  return canonicalDomain(domain) ?? domain.trim().toLowerCase();
 }
 
 /** The domain part of an address, normalized. Null when the input is not an address. */

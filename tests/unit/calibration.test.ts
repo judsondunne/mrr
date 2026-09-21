@@ -79,7 +79,21 @@ function base(): MockAnalysis {
   };
 }
 
-function replyOf(req: { user: string }): string {
+/**
+ * The reply text as the classifier actually passes it.
+ *
+ * `classifyReply` puts attacker-controlled subject/body in the `untrusted`
+ * channel so the LLM layer fences them as DATA on every call, and keeps only
+ * the offer summary in `user`. Reading `req.user` (as this helper first did)
+ * therefore saw no reply at all, and every fixture fell through to a default —
+ * which is why calibration measured 5/14 rather than the classifier's real
+ * accuracy.
+ */
+function replyOf(req: { user: string; untrusted?: Record<string, string> }): string {
+  const untrusted = req.untrusted;
+  if (untrusted) {
+    return [untrusted.inbound_subject ?? '', untrusted.inbound_email ?? ''].join('\n').trim();
+  }
   try {
     return (JSON.parse(req.user) as { reply?: string }).reply ?? '';
   } catch {

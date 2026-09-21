@@ -20,6 +20,14 @@ const logger = createLogger('db');
 
 export interface QueryResult<T> {
   rows: T[];
+  /**
+   * Rows AFFECTED for INSERT/UPDATE/DELETE, rows RETURNED for SELECT.
+   *
+   * This distinction matters: the optimistic-concurrency idiom
+   * (`UPDATE ... WHERE state = $expected` then check the count) is how this
+   * codebase avoids double-sends and lost updates, and it is silently broken
+   * if an UPDATE without RETURNING reports 0.
+   */
   rowCount: number;
 }
 
@@ -39,7 +47,10 @@ class PgliteDb implements Db {
 
   async query<T>(sql: string, params: unknown[] = []): Promise<QueryResult<T>> {
     const res = await this.client.query<T>(sql, params as never[]);
-    return { rows: res.rows as T[], rowCount: res.rows.length };
+    // PGlite reports affectedRows for DML and 0 for SELECT, so prefer it and
+    // fall back to the returned-row count.
+    const affected = (res as unknown as { affectedRows?: number }).affectedRows ?? 0;
+    return { rows: res.rows as T[], rowCount: affected > 0 ? affected : res.rows.length };
   }
 
   async transaction<T>(fn: (tx: Db) => Promise<T>): Promise<T> {
@@ -63,7 +74,7 @@ class PgliteDb implements Db {
 // --- postgres.js -------------------------------------------------------------
 
 type Sql = {
-  unsafe: (sql: string, params?: unknown[]) => Promise<unknown[]>;
+  unsafe: (sql: string, params?: unknown[]) => Promise<unknown[] & { count?: number }>;
   begin: <T>(fn: (tx: Sql) => Promise<T>) => Promise<T>;
   end: (opts?: { timeout?: number }) => Promise<void>;
 };
@@ -73,8 +84,11 @@ class PostgresDb implements Db {
   constructor(private readonly sql: Sql, private readonly inTx = false) {}
 
   async query<T>(sql: string, params: unknown[] = []): Promise<QueryResult<T>> {
-    const rows = (await this.sql.unsafe(sql, params)) as T[];
-    return { rows, rowCount: rows.length };
+    const result = await this.sql.unsafe(sql, params);
+    const rows = result as unknown as T[];
+    // postgres.js exposes the affected-row count as `.count` on the result.
+    const affected = typeof result.count === 'number' ? result.count : 0;
+    return { rows, rowCount: affected > 0 ? affected : rows.length };
   }
 
   async transaction<T>(fn: (tx: Db) => Promise<T>): Promise<T> {

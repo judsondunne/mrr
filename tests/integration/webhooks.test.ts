@@ -107,7 +107,7 @@ interface Fixture {
 }
 
 async function seed(db: Db, overrides: { domain?: string } = {}): Promise<Fixture> {
-  const domain = overrides.domain ?? 'northside.example.com';
+  const domain = overrides.domain ?? 'northside-supply.test';
   const opportunityId = newId('opp');
   await db.query(
     `INSERT INTO opportunities

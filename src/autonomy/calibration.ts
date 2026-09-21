@@ -269,6 +269,9 @@ async function classifyFixture(fixture: CalibrationFixture): Promise<string> {
       text: fixture.body,
       subject: fixture.subject,
       offerSummary: fixture.offerSummary ?? CALIBRATION_OFFER_SUMMARY,
+      // Measure the configuration that is live right now, not whatever a
+      // previous run happened to cache for this fixture.
+      bypassCache: true,
     });
     return outcome.analysis.classification;
   } catch (err) {

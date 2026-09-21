@@ -214,7 +214,16 @@ describe('per-domain warm-up', () => {
     await ctx.db.query(`UPDATE sending_reputation SET first_send_at = now() - interval '5 days' WHERE id = 1`);
     const cap = await domainDailyCap();
     expect(cap.warmupDay).toBe(6);
-    expect(cap.cap).toBe(75); // past the end of the schedule
+    // Day 6 is still INSIDE the schedule (2:10, 4:20, 7:35), so the cap is 35.
+    // This assertion previously said 75, which contradicted warmupCapFor(5)
+    // === 35 above.
+    expect(cap.cap).toBe(35);
+
+    // Past the last entry, the normal daily ceiling applies.
+    await ctx.db.query(`UPDATE sending_reputation SET first_send_at = now() - interval '20 days' WHERE id = 1`);
+    const matured = await domainDailyCap();
+    expect(matured.warmupDay).toBe(21);
+    expect(matured.cap).toBe(75);
   });
 });
 

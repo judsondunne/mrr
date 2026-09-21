@@ -105,9 +105,25 @@ describe('company identity', () => {
   });
 });
 
+
+/**
+ * Real campaign rows. `company_registry.last_campaign_id` and
+ * `engaged_campaign_id` are foreign keys to `campaigns(id)`, so a synthetic id
+ * is rejected by the database — correctly, since a fatigue record that points
+ * at a campaign which never existed is meaningless.
+ */
+async function realCampaigns(db: Parameters<typeof insertCampaign>[0], n: number): Promise<string[]> {
+  const opportunityId = await insertOpportunity(db, { state: 'VALIDATING' });
+  const ids: string[] = [];
+  for (let i = 0; i < n; i++) {
+    ids.push(await insertCampaign(db, opportunityId, { slug: `fatigue-${newId('s')}` }));
+  }
+  return ids;
+}
+
 describe('NEVER_CONTACT is terminal', () => {
   it('cannot be cleared by any other writer', async () => {
-    await freshDb(env());
+    const ctx = await freshDb(env());
     await markNeverContact('northside.com', 'unsubscribed');
 
     const blocked = await canContactCompany('northside.com');
@@ -116,15 +132,16 @@ describe('NEVER_CONTACT is terminal', () => {
 
     // Every other state writer is asked to overwrite it. None may.
     await startCooldown({ companyKey: 'northside.com', days: 1, reason: 'try to downgrade' });
-    await markEngaged('northside.com', 'cmp_anything');
+    const [cmpAnything] = await realCampaigns(ctx.db, 1);
+    await markEngaged('northside.com', cmpAnything!);
     await upsertCompany({ companyKey: 'northside.com', dataQuality: 'HIGH' });
-    await recordContact({ companyKey: 'northside.com', campaignId: 'cmp_anything' });
+    await recordContact({ companyKey: 'northside.com', campaignId: cmpAnything! });
 
     const after = await canContactCompany('northside.com');
     expect(after.allowed).toBe(false);
     expect(after.state).toBe('NEVER_CONTACT');
     // Not even the campaign-aware variant lets it through.
-    expect((await canContactCompanyForCampaign('northside.com', 'cmp_anything')).allowed).toBe(false);
+    expect((await canContactCompanyForCampaign('northside.com', cmpAnything!)).allowed).toBe(false);
   });
 
   it('is set by an unsubscribe, for the whole business', async () => {
@@ -160,17 +177,18 @@ describe('cooldowns', () => {
 
   it('keeps an unrelated campaign away for COMPANY_COOLDOWN_DAYS', async () => {
     const ctx = await freshDb(env({ COMPANY_COOLDOWN_DAYS: '90' }));
-    await recordContact({ companyKey: 'northside.com', campaignId: 'cmp_a' });
+    const [cmpA, cmpB] = await realCampaigns(ctx.db, 2);
+    await recordContact({ companyKey: 'northside.com', campaignId: cmpA! });
 
     // The campaign that is already talking to them may keep going.
-    expect((await canContactCompanyForCampaign('northside.com', 'cmp_a')).allowed).toBe(true);
+    expect((await canContactCompanyForCampaign('northside.com', cmpA!)).allowed).toBe(true);
     // An unrelated experiment may not.
-    const other = await canContactCompanyForCampaign('northside.com', 'cmp_b');
+    const other = await canContactCompanyForCampaign('northside.com', cmpB!);
     expect(other.allowed).toBe(false);
     expect(other.reason).toMatch(/^CROSS_CAMPAIGN_COOLDOWN:90d/);
 
     await ctx.db.query(`UPDATE company_registry SET last_contacted_at = now() - interval '120 days'`);
-    expect((await canContactCompanyForCampaign('northside.com', 'cmp_b')).allowed).toBe(true);
+    expect((await canContactCompanyForCampaign('northside.com', cmpB!)).allowed).toBe(true);
   });
 
   it('is skipped by the send path, with the reason recorded', async () => {
@@ -180,18 +198,18 @@ describe('cooldowns', () => {
       `UPDATE opportunities SET wedge_json = $2, proposed_price_monthly = 19 WHERE id = $1`,
       [opportunityId, JSON.stringify(WEDGE)],
     );
-    await insertProspect(ctx.db, opportunityId, { domain: 'allowed-store.example.com' });
-    await insertProspect(ctx.db, opportunityId, { domain: 'tired-store.example.com' });
+    await insertProspect(ctx.db, opportunityId, { domain: 'allowed-store.test' });
+    await insertProspect(ctx.db, opportunityId, { domain: 'tired-store.test' });
 
     expect((await prepareCampaigns(1))[0]?.drafted).toBe(2);
 
     // The cooldown starts AFTER the drafts exist, so only the send path can
     // catch it — exactly the race the second check exists for.
-    await startCooldown({ companyKey: 'tired-store.example.com', days: 90, reason: 'contacted last month' });
+    await startCooldown({ companyKey: 'tired-store.test', days: 90, reason: 'contacted last month' });
 
     const results = await sendDueMessages();
     expect(results[0]?.sent).toBe(1);
-    expect(ctx.email.sent.map((e) => e.to)).toEqual(['hello@allowed-store.example.com']);
+    expect(ctx.email.sent.map((e) => e.to)).toEqual(['hello@allowed-store.test']);
 
     const skipped = await ctx.db.query<{ error: string }>(
       `SELECT error FROM messages WHERE status = 'FAILED'`,
@@ -203,15 +221,16 @@ describe('cooldowns', () => {
 
 describe('an engaged company belongs to one experiment', () => {
   it('is not pulled into a second one', async () => {
-    await freshDb(env());
-    await markEngaged('northside.com', 'cmp_first');
+    const ctx = await freshDb(env());
+    const [cmpFirst, cmpSecond] = await realCampaigns(ctx.db, 2);
+    await markEngaged('northside.com', cmpFirst!);
 
-    expect((await canContactCompanyForCampaign('northside.com', 'cmp_first')).allowed).toBe(true);
+    expect((await canContactCompanyForCampaign('northside.com', cmpFirst!)).allowed).toBe(true);
 
-    const second = await canContactCompanyForCampaign('northside.com', 'cmp_second');
+    const second = await canContactCompanyForCampaign('northside.com', cmpSecond!);
     expect(second.allowed).toBe(false);
     expect(second.state).toBe('ENGAGED');
-    expect(second.reason).toBe('ENGAGED_IN_ANOTHER_EXPERIMENT:cmp_first');
+    expect(second.reason).toBe(`ENGAGED_IN_ANOTHER_EXPERIMENT:${cmpFirst}`);
 
     // The campaign-agnostic question is also "no": something is already
     // talking to this business.
@@ -329,17 +348,17 @@ describe('the send path registers and ages the company it emailed', () => {
       `UPDATE opportunities SET wedge_json = $2, proposed_price_monthly = 19 WHERE id = $1`,
       [opportunityId, JSON.stringify(WEDGE)],
     );
-    await insertProspect(ctx.db, opportunityId, { domain: 'fresh-store.example.com' });
+    await insertProspect(ctx.db, opportunityId, { domain: 'fresh-store.test' });
     await prepareCampaigns(1);
     await sendDueMessages();
 
     expect(ctx.email.sent).toHaveLength(1);
     const row = await ctx.db.query<{ total_emails: number; last_campaign_id: string }>(
-      `SELECT total_emails, last_campaign_id FROM company_registry WHERE company_key = 'fresh-store.example.com'`,
+      `SELECT total_emails, last_campaign_id FROM company_registry WHERE company_key = 'fresh-store.test'`,
     );
     expect(Number(row.rows[0]?.total_emails)).toBe(1);
 
     const otherCampaign = await insertCampaign(ctx.db, opportunityId, { id: newId('cmp'), slug: 'other' });
-    expect((await canContactCompanyForCampaign('fresh-store.example.com', otherCampaign)).allowed).toBe(false);
+    expect((await canContactCompanyForCampaign('fresh-store.test', otherCampaign)).allowed).toBe(false);
   });
 });

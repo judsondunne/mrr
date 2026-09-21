@@ -376,7 +376,12 @@ describe('ordinary prose is not an attack', () => {
     expect(result.text).toContain('Our minimum order is 12 units per style');
     expect(result.text).toContain('wholesale@northfield.example');
     expect(result.text).toContain('$8.50');
-    expect(result.text).not.toContain('<');
+    // No HTML MARKUP survives. Note this is not "no '<' character": the page
+    // legitimately contains `<buyers@northfield.example>` and `$10 < $15`, and
+    // stripping those would corrupt real content — angle-bracketed addresses
+    // are ordinary in business prose. So assert on tag shapes, not on the
+    // character.
+    expect(result.text).not.toMatch(/<\/?[a-z][a-z0-9-]*(\s[^>]*)?>/i);
     expect(result.text).not.toContain('pixel.gif');
   });
 

@@ -155,6 +155,15 @@ export async function classifyReply(params: {
   subject?: string;
   headers?: Record<string, string>;
   offerSummary?: string;
+  /**
+   * Skip the LLM response cache.
+   *
+   * Only calibration sets this. Caching identical prompt+content is correct
+   * for production — it is how the same reply is never paid for twice — but
+   * calibration exists to measure what the CURRENT configuration does, and a
+   * cached answer produced by a previous configuration measures nothing.
+   */
+  bypassCache?: boolean;
 }): Promise<ClassificationOutcome> {
   const deterministic = classifyDeterministic(params.text, params.headers ?? {});
   if (deterministic) {
@@ -171,6 +180,7 @@ export async function classifyReply(params: {
       schemaName: 'ReplyAnalysis',
       maxTokens: 800,
       schema: ReplyAnalysis,
+      cacheable: params.bypassCache !== true,
       system: CLASSIFY_SYSTEM,
       user: JSON.stringify({
         offer: params.offerSummary ?? '',

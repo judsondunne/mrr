@@ -114,10 +114,10 @@ describe('suppression list', () => {
 
   it('suppresses every address at a suppressed domain', async () => {
     await freshDb(env());
-    await suppress({ domain: 'www.Blocked.example.com', reason: 'COMPLAINT' });
+    await suppress({ domain: 'www.Blocked-shop.test', reason: 'COMPLAINT' });
 
-    expect(await isSuppressed('anyone@blocked.example.com')).toBe(true);
-    expect(await isSuppressed('someone@other.example.com')).toBe(false);
+    expect(await isSuppressed('anyone@blocked-shop.test')).toBe(true);
+    expect(await isSuppressed('someone@other-shop.test')).toBe(false);
   });
 
   it('is idempotent', async () => {
@@ -134,9 +134,9 @@ describe('suppression list', () => {
   it('mirrors suppression onto the prospect row', async () => {
     const ctx = await freshDb(env());
     const opportunityId = await seedOpportunity(ctx.db);
-    const prospectId = await insertProspect(ctx.db, opportunityId, { domain: 'mirror.example.com' });
+    const prospectId = await insertProspect(ctx.db, opportunityId, { domain: 'mirror-shop.test' });
 
-    await suppress({ email: 'hello@mirror.example.com', reason: 'UNSUBSCRIBE' });
+    await suppress({ email: 'hello@mirror-shop.test', reason: 'UNSUBSCRIBE' });
 
     const row = await ctx.db.query<{ status: string; suppressed_at: string | null }>(
       'SELECT status, suppressed_at FROM prospects WHERE id = $1',
@@ -148,17 +148,17 @@ describe('suppression list', () => {
 
   it('bulk-filters by address and by domain', async () => {
     await freshDb(env());
-    await suppress({ email: 'a@one.example.com', reason: 'UNSUBSCRIBE' });
-    await suppress({ domain: 'two.example.com', reason: 'COMPLAINT' });
+    await suppress({ email: 'a@one-shop.test', reason: 'UNSUBSCRIBE' });
+    await suppress({ domain: 'two-shop.test', reason: 'COMPLAINT' });
 
-    const blocked = await filterSuppressed(['a@one.example.com', 'b@one.example.com', 'c@two.example.com']);
-    expect([...blocked].sort()).toEqual(['a@one.example.com', 'c@two.example.com']);
+    const blocked = await filterSuppressed(['a@one-shop.test', 'b@one-shop.test', 'c@two-shop.test']);
+    expect([...blocked].sort()).toEqual(['a@one-shop.test', 'c@two-shop.test']);
   });
 
   it('normalizes the way every caller expects', () => {
     expect(normalizeEmail('  Foo@Bar.COM ')).toBe('foo@bar.com');
     expect(normalizeDomain('https://WWW.Example.com/path')).toBe('example.com');
-    expect(domainOfEmail('a@b.example.com')).toBe('b.example.com');
+    expect(domainOfEmail('a@b-shop.test')).toBe('b-shop.test');
     expect(domainOfEmail('not-an-address')).toBeNull();
     expect(companyKeyFor({ domain: 'WWW.Shop.com' })).toBe('shop.com');
     expect(companyKeyFor({ email: 'x@shop.com' })).toBe('shop.com');
@@ -172,24 +172,29 @@ describe('the send path re-checks suppression', () => {
   it('never emails a suppressed address or a suppressed domain, even with a draft ready', async () => {
     const ctx = await freshDb(env());
     const opportunityId = await seedOpportunity(ctx.db);
-    await insertProspect(ctx.db, opportunityId, { domain: 'allowed.example.com' });
-    await insertProspect(ctx.db, opportunityId, { domain: 'blocked-address.example.com' });
-    await insertProspect(ctx.db, opportunityId, { domain: 'blocked-domain.example.com' });
+    // Distinct REGISTRABLE domains on purpose. Three subdomains of one parent
+    // would be one company under the canonical normalizer — correctly, since
+    // shop.acme.com and www.acme.com are the same business — so a fixture
+    // using *.example.com for three unrelated businesses would be asserting
+    // something that is not true of real prospects.
+    await insertProspect(ctx.db, opportunityId, { domain: 'allowed-shop.test' });
+    await insertProspect(ctx.db, opportunityId, { domain: 'blocked-address-shop.test' });
+    await insertProspect(ctx.db, opportunityId, { domain: 'blocked-domain-shop.test' });
 
     const prepared = await prepareCampaigns(1);
     expect(prepared[0]?.drafted).toBe(3);
 
     // Suppression happens AFTER the drafts exist.
-    await suppress({ email: 'hello@blocked-address.example.com', reason: 'UNSUBSCRIBE' });
-    await suppress({ domain: 'blocked-domain.example.com', reason: 'COMPLAINT' });
+    await suppress({ email: 'hello@blocked-address-shop.test', reason: 'UNSUBSCRIBE' });
+    await suppress({ domain: 'blocked-domain-shop.test', reason: 'COMPLAINT' });
 
     const results = await sendDueMessages();
     expect(results[0]?.sent).toBe(1);
 
     const recipients = ctx.email.sent.map((e) => e.to);
-    expect(recipients).toEqual(['hello@allowed.example.com']);
-    expect(recipients).not.toContain('hello@blocked-address.example.com');
-    expect(recipients).not.toContain('hello@blocked-domain.example.com');
+    expect(recipients).toEqual(['hello@allowed-shop.test']);
+    expect(recipients).not.toContain('hello@blocked-address-shop.test');
+    expect(recipients).not.toContain('hello@blocked-domain-shop.test');
 
     const skipped = await ctx.db.query<{ status: string; error: string }>(
       `SELECT status, error FROM messages WHERE status = 'FAILED'`,
@@ -198,21 +203,21 @@ describe('the send path re-checks suppression', () => {
     for (const row of skipped.rows) {
       expect(row.error).toMatch(/^SKIPPED:(SUPPRESSED|PROSPECT_SUPPRESSED)$/);
     }
-    expect(await isSuppressed('hello@blocked-address.example.com')).toBe(true);
-    expect(await isSuppressed('hello@blocked-domain.example.com')).toBe(true);
+    expect(await isSuppressed('hello@blocked-address-shop.test')).toBe(true);
+    expect(await isSuppressed('hello@blocked-domain-shop.test')).toBe(true);
   });
 
   it('refuses a suppression-table entry even when the prospect row looks fine', async () => {
     const ctx = await freshDb(env());
     const opportunityId = await seedOpportunity(ctx.db);
-    await insertProspect(ctx.db, opportunityId, { domain: 'stale.example.com' });
+    await insertProspect(ctx.db, opportunityId, { domain: 'stale-shop.test' });
     await prepareCampaigns(1);
 
     // Straight into the table, with no mirroring onto the prospect row: the
     // send path must still consult the list itself.
     await ctx.db.query(
       `INSERT INTO suppression_list (id, email, reason) VALUES ($1,$2,'COMPLAINT')`,
-      [newId('sup'), 'hello@stale.example.com'],
+      [newId('sup'), 'hello@stale-shop.test'],
     );
 
     const results = await sendDueMessages();
@@ -225,8 +230,8 @@ describe('the send path re-checks suppression', () => {
   it('suppresses and refuses prospects outside ALLOWED_OUTREACH_COUNTRIES', async () => {
     const ctx = await freshDb(env({ ALLOWED_OUTREACH_COUNTRIES: 'US,CA' }));
     const opportunityId = await seedOpportunity(ctx.db);
-    await insertProspect(ctx.db, opportunityId, { domain: 'us-store.example.com', country: 'US' });
-    await insertProspect(ctx.db, opportunityId, { domain: 'ca-store.example.com', country: 'CA' });
+    await insertProspect(ctx.db, opportunityId, { domain: 'us-store.test', country: 'US' });
+    await insertProspect(ctx.db, opportunityId, { domain: 'ca-store.test', country: 'CA' });
     await prepareCampaigns(1);
 
     // The allow-list narrows after the drafts were written.
@@ -235,12 +240,12 @@ describe('the send path re-checks suppression', () => {
 
     const results = await sendDueMessages();
     expect(results[0]?.sent).toBe(1);
-    expect(ctx.email.sent.map((e) => e.to)).toEqual(['hello@us-store.example.com']);
-    expect(await isSuppressed('hello@ca-store.example.com')).toBe(true);
+    expect(ctx.email.sent.map((e) => e.to)).toEqual(['hello@us-store.test']);
+    expect(await isSuppressed('hello@ca-store.test')).toBe(true);
 
     const reason = await ctx.db.query<{ reason: string }>(
       'SELECT reason FROM suppression_list WHERE email = $1',
-      ['hello@ca-store.example.com'],
+      ['hello@ca-store.test'],
     );
     expect(reason.rows[0]?.reason).toBe('COUNTRY_NOT_ALLOWED');
   });
@@ -248,7 +253,7 @@ describe('the send path re-checks suppression', () => {
   it('puts a working one-click opt-out on every draft', async () => {
     const ctx = await freshDb(env({ INITIAL_EMAIL_BATCH: '1' }));
     const opportunityId = await seedOpportunity(ctx.db);
-    await insertProspect(ctx.db, opportunityId, { domain: 'optout.example.com' });
+    await insertProspect(ctx.db, opportunityId, { domain: 'optout-shop.test' });
     await prepareCampaigns(1);
     await sendDueMessages();
 
@@ -260,8 +265,8 @@ describe('the send path re-checks suppression', () => {
     const token = extractUnsubscribeToken(sent?.text ?? '');
     expect(token).not.toBeNull();
     const outcome = await processUnsubscribe(token ?? '');
-    expect(outcome).toEqual({ ok: true, email: 'hello@optout.example.com' });
-    expect(await isSuppressed('hello@optout.example.com')).toBe(true);
+    expect(outcome).toEqual({ ok: true, email: 'hello@optout-shop.test' });
+    expect(await isSuppressed('hello@optout-shop.test')).toBe(true);
   });
 });
 

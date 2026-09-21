@@ -12,7 +12,7 @@ process.env.EMAIL_PROVIDER = 'mock';
 process.env.ANTHROPIC_API_KEY = '';
 process.env.BRAVE_SEARCH_API_KEY = '';
 process.env.RESEND_API_KEY = '';
-process.env.LOG_LEVEL = 'error';
+process.env.LOG_LEVEL = process.env.SIM_LOG_LEVEL ?? 'error';
 process.env.AUTONOMY_ENABLED = 'false';
 process.env.OUTREACH_ENABLED = 'false';
 
