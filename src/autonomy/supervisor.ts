@@ -956,6 +956,18 @@ async function executeWork(item: WorkItem): Promise<void> {
       // left the deep-research concurrency count, so after three candidates
       // the ceiling pinned `slots` at zero and research stopped for good.
       if (item.opportunityId) {
+        // Staged research is a PRE-verification filter. Running it on a
+        // category that already passed verification let a cheap stage-2
+        // classification overturn a completed HIGH-confidence verdict and
+        // reject it — verification undone by the filter that precedes it.
+        const { one: oneRow } = await import('../lib/db');
+        const cur = await oneRow<{ state: string }>(
+          'SELECT state FROM opportunities WHERE id = $1',
+          [item.opportunityId],
+        );
+        const preVerification = cur?.state === 'DISCOVERED' || cur?.state === 'CATEGORY_VERIFYING';
+
+        if (preVerification) {
         const { advanceResearchStage } = await import('./discovery/index');
         const outcome = await advanceResearchStage(item.opportunityId);
 
@@ -991,6 +1003,7 @@ async function executeWork(item: WorkItem): Promise<void> {
         }
         // Survived, but not yet a finalist: nothing more to spend on it now.
         if (outcome.toStage < DEEP_RESEARCH_HANDOFF_STAGE) return;
+        }
       }
       // A survivor that has earned the expensive stage goes through the real
       // verification/wedge jobs, which own the state transitions.

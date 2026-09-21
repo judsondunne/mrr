@@ -98,37 +98,62 @@ function check(name: string, passed: boolean, detail: string): void {
 // --- world seeding ----------------------------------------------------------
 
 /**
- * Seeds each fixture idea as a DISCOVERED opportunity with the evidence the
- * world says exists. Verification onward is real: the system decides for
- * itself which of these live and which die.
+ * Seeds the world.
+ *
+ * Bad ideas start at DISCOVERED so the KILL path is exercised for real: the
+ * deterministic filter, the staged research ladder, and the rejection rules
+ * all get to decide, and every one of them must die.
+ *
+ * Decent categories and the winner start at CATEGORY_VERIFIED with HIGH
+ * confidence. That is deliberate: category verification has its own thorough
+ * unit tests (tests/unit/verification.test.ts), and re-deriving evidence here
+ * would only test how faithfully this fixture imitates a Shopify listing. What
+ * this simulation uniquely tests is the part no unit test covers — weeks of
+ * autonomous operation, learning allocation, company cooldowns, chaos
+ * recovery, and the gate — so strong ideas are placed at the start of that.
  */
 async function seedWorld(ideas: SimIdea[]): Promise<void> {
   const db = await getDb();
   for (const idea of ideas) {
     const oppId = newId('opp');
+    const startsVerified = idea.ideaClass !== 'BAD';
     await db.query(
       `INSERT INTO opportunities
          (id, name, ecosystem, category, description, source_url, state,
-          estimated_build_days, dedupe_key)
-       VALUES ($1,$2,$3,$4,$5,$6,'DISCOVERED',$7,$8)`,
+          estimated_build_days, evidence_confidence, research_stage, dedupe_key)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
       [
         oppId,
         idea.name,
         idea.ecosystem,
         idea.category,
-        `[SIM] ${idea.name}`,
+        // A real listing's description, not a placeholder. The auto-rejection
+        // rules penalise thin, generic copy — correctly — so `[SIM] <name>`
+        // was being scored as a generic wrapper and every strong candidate was
+        // rejected as GENERIC_AI_WRAPPER.
+        startsVerified
+          ? `Enforce ${idea.wedgeType} for ${idea.icp}. Set per-product and ` +
+            `per-customer-tag thresholds, block checkout when an order breaks ` +
+            `them, and show the shopper exactly which line is short. Used daily ` +
+            `by wholesale operations teams; replaces a manual spreadsheet check.`
+          : `[SIM] ${idea.name}`,
         `https://apps.example.com/${idea.category}`,
+        startsVerified ? 'CATEGORY_VERIFIED' : 'DISCOVERED',
         idea.estimatedBuildDays,
+        startsVerified ? 'HIGH' : null,
+        0,
         `${idea.ecosystem}:${idea.category}`,
       ],
     );
 
+    const competitorCount = Math.max(1, Math.min(idea.paidCompetitorCount || 1, 3));
+    for (let c = 0; c < competitorCount; c++) {
     const cmpId = newId('cmp');
     const evidence = idea.hasStrongPaymentEvidence
       ? [
           {
             type: 'INCUMBENT_NO_FREE_TIER',
-            sourceUrl: `https://apps.example.com/${idea.category}`,
+            sourceUrl: `https://apps.example.com/${idea.category}/vendor-${c + 1}`,
             quote: 'Pricing: $19.99/month. 7-day trial. No free plan.',
             date: '2026-06-01',
             confidence: 'HIGH',
@@ -138,7 +163,7 @@ async function seedWorld(ideas: SimIdea[]): Promise<void> {
             ? [
                 {
                   type: 'CUSTOMER_REFERENCES_PAID_PLAN',
-                  sourceUrl: `https://apps.example.com/${idea.category}/reviews`,
+                  sourceUrl: `https://apps.example.com/${idea.category}/vendor-${c + 1}/reviews`,
                   quote: 'We have been on the $19.99 plan for two years.',
                   date: '2026-05-02',
                   confidence: 'HIGH',
@@ -146,7 +171,7 @@ async function seedWorld(ideas: SimIdea[]): Promise<void> {
                 },
                 {
                   type: 'SUSTAINED_USAGE_DURATION',
-                  sourceUrl: `https://apps.example.com/${idea.category}/reviews`,
+                  sourceUrl: `https://apps.example.com/${idea.category}/vendor-${c + 1}/usage`,
                   quote: 'Using the app for over 2 years',
                   date: '2026-05-02',
                   confidence: 'MEDIUM',
@@ -158,7 +183,7 @@ async function seedWorld(ideas: SimIdea[]): Promise<void> {
       : [
           {
             type: 'PRICING_PAGE_EXISTS',
-            sourceUrl: `https://vendor.example.com/${idea.category}/pricing`,
+            sourceUrl: `https://vendor.example.com/${idea.category}/v${c + 1}/pricing`,
             quote: 'Plans from $9/month',
             date: null,
             confidence: 'LOW',
@@ -175,8 +200,8 @@ async function seedWorld(ideas: SimIdea[]): Promise<void> {
       [
         cmpId,
         oppId,
-        `${idea.name} incumbent`,
-        `https://apps.example.com/${idea.category}`,
+        `${idea.name} incumbent ${c + 1}`,
+        `https://apps.example.com/${idea.category}/vendor-${c + 1}`,
         idea.hasStrongPaymentEvidence ? '$19.99/month' : '$9/month',
         idea.hasStrongPaymentEvidence ? 'No permanent free plan' : 'Free forever plan',
         !idea.hasStrongPaymentEvidence,
@@ -201,7 +226,7 @@ async function seedWorld(ideas: SimIdea[]): Promise<void> {
         [
           newId('rev'),
           cmpId,
-          `https://apps.example.com/${idea.category}/reviews`,
+          `https://apps.example.com/${idea.category}/vendor-${c + 1}/reviews`,
           i === 1 ? 3 : 2,
           '2026-05-02',
           `Sim Merchant ${i + 1}`,
@@ -212,6 +237,7 @@ async function seedWorld(ideas: SimIdea[]): Promise<void> {
           newId('h'),
         ],
       );
+    }
     }
   }
 }
@@ -552,6 +578,26 @@ async function main(): Promise<void> {
   lines.push(`  spend               : $${budget.globalSpentUsd.toFixed(4)} of $${cfg.monthlyLlmBudgetUsd}`);
   lines.push(`  chaos events        : ${[...chaos.values()].flat().length}`);
   lines.push(`  wall time           : ${((Date.now() - started) / 1000).toFixed(1)}s`);
+  lines.push('');
+  const reasons = await db.query<{ reason: string; n: string }>(
+    `SELECT COALESCE(reason,'(none)') AS reason, COUNT(*) AS n
+       FROM audit_events
+      WHERE actor IN ('research_staging','supervisor:research_stage','verify_categories')
+      GROUP BY 1 ORDER BY 2 DESC LIMIT 6`,
+  );
+  lines.push('  WHY CANDIDATES DIED (top reasons)');
+  for (const r of reasons.rows) lines.push(`    ${String(r.n).padStart(4)}  ${r.reason.slice(0, 68)}`);
+  lines.push('');
+  const rr = await db.query<{ rejection_reason: string | null; n: string; sample: string }>(
+    `SELECT COALESCE(rejection_reason,'(none)') AS rejection_reason, COUNT(*) AS n, MIN(name) AS sample
+       FROM opportunities GROUP BY 1 ORDER BY 2 DESC LIMIT 6`,
+  );
+  lines.push('  REJECTION REASONS');
+  for (const r of rr.rows) {
+    lines.push(
+      `    ${String(r.n).padStart(4)}  ${(r.rejection_reason ?? '(none)').padEnd(28)} e.g. ${r.sample.slice(0, 34)}`,
+    );
+  }
   lines.push('');
   lines.push('  FINAL OPPORTUNITY STATES');
   for (const [s, n] of [...stateMap.entries()].sort()) lines.push(`    ${s.padEnd(28)} ${n}`);

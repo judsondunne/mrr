@@ -150,6 +150,98 @@ function shapeFor<T>(req: LlmRequest<T>, state: SimState): unknown {
   const text = `${req.user} ${JSON.stringify(req.untrusted ?? {})}`.toLowerCase();
   const idea = state.ideas.find((i) => text.includes(i.category)) ?? null;
 
+  // --- research / verification -------------------------------------------
+  // These shape the model's answers from the WORLD, so a strong category reads
+  // strong and a weak one reads weak. Without this every research task fell
+  // through to schema synthesis — which answers "no" to every boolean — and
+  // the true winner was rejected alongside the 50 bad ideas.
+
+  // Staged research: stages 2-4 are the cheap/expensive filters that decide
+  // which candidates survive. Answer them from the world's truth so a strong
+  // category survives and a weak one does not.
+  if (req.task === 'research.stage2_classification') {
+    const strong = idea?.hasStrongPaymentEvidence ?? false;
+    const narrow = (idea?.estimatedBuildDays ?? 99) <= 10;
+    return {
+      looksLikeRecurringBusinessJob: strong,
+      audienceIsBusinesses: strong,
+      paidCompetitorsMentioned: (idea?.paidCompetitorCount ?? 0) > 0,
+      narrowEnoughForASmallApp: narrow,
+      note: strong ? 'recurring operational job with paid incumbents' : 'no evidence of a paid job',
+    };
+  }
+
+  if (req.task === 'research.stage3_complaints') {
+    const strong = idea?.hasStrongPaymentEvidence ?? false;
+    return {
+      recurringComplaintPresent: strong,
+      complaintIsAboutTheJobNotTheVendor: strong,
+      switchingIntentExpressed: strong,
+      strongestComplaintTheme: strong ? 'incumbent is a heavy rules engine' : 'none',
+    };
+  }
+
+  if (req.task === 'research.stage4_finalist') {
+    const strong = idea?.hasStrongPaymentEvidence ?? false;
+    return {
+      evidenceOfExistingSpend: strong,
+      incumbentChargesMoney: (idea?.paidCompetitorCount ?? 0) > 0,
+      wedgeIsNarrowEnoughForATwoWeekBuild: (idea?.estimatedBuildDays ?? 99) <= 10,
+      blockingRisk: strong ? '' : 'no verified spend in this category',
+    };
+  }
+
+  if (req.task === 'prospect.icp_judgement') {
+    // Real businesses in a reachable segment qualify; junk segments do not.
+    const fits = idea ? idea.prospectYield >= 100 : false;
+    return {
+      fits,
+      confidence: fits ? 0.85 : 0.15,
+      reason: fits
+        ? `public page states a ${idea?.wedgeType ?? 'workflow'} requirement`
+        : 'no public evidence of the workflow',
+      evidenceQuote: fits ? 'Minimum order is 12 units per style.' : '',
+    };
+  }
+
+  if (req.task === 'wedge.synthesize') {
+    const i = idea ?? state.ideas[state.ideas.length - 1]!;
+    return {
+      statement: `For ${i.icp}, enforce ${i.wedgeType} without a full replatform.`,
+      productName: i.name.slice(0, 55),
+      targetCustomer: i.icp,
+      coreWorkflow: `enforcing ${i.wedgeType} at checkout every day`,
+      v1Features: [
+        `${i.wedgeType} rules per product`,
+        'customer-tag thresholds',
+        'clear cart-level explanation',
+      ],
+      excludedFromV1: ['multi-currency', 'per-collection rules', 'any AI feature'],
+      proposedPriceMonthly: i.priceMonthly,
+      estimatedBuildDays: i.estimatedBuildDays,
+      primaryCompetitor: `${i.name} incumbent`,
+      reasonSomeoneWouldSwitch: 'the incumbent requires a full rules engine',
+      oneSentenceOutcome: `Stop orders that break your ${i.wedgeType}.`,
+      capabilities: [
+        `${i.wedgeType} rules per product`,
+        'customer-tag thresholds',
+        'clear cart-level explanation',
+      ],
+      whoItIsFor: i.icp,
+    };
+  }
+
+  if (req.task === 'shopify_pricing_disambiguation') {
+    const paid = idea ? idea.hasStrongPaymentEvidence : false;
+    return {
+      hasPermanentFreeTier: !paid,
+      monthlyPriceUsd: paid ? 19.99 : 0,
+      planName: paid ? 'Standard' : 'Free',
+      confidence: 0.8,
+      note: paid ? 'paid plan, no permanent free tier' : 'free forever plan',
+    };
+  }
+
   if (/classif|reply|inbound/i.test(req.task)) {
     const strong = idea ? state.rng() < idea.strongShare : false;
     const accepted = strong && idea ? state.rng() < idea.priceAcceptShare : false;

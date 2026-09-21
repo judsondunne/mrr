@@ -106,10 +106,19 @@ export async function getConcurrencyState(): Promise<ConcurrencyState> {
   const [researchOpportunities, deepResearchOpportunities, activeValidations, unsentProspects, monthlyExperiments] =
     await Promise.all([
       count(`SELECT COUNT(*) AS n FROM opportunities WHERE state IN (${research.sql})`, research.params),
+      // Opportunities ACTIVELY in deep research — not every opportunity that
+      // has ever reached that stage.
+      //
+      // Counting the latter meant the ceiling measured a permanent property:
+      // once three candidates had ever passed stage 3, `slots` was zero
+      // forever and deep research stopped for good, even though none of them
+      // was still being worked on. A graduated candidate (CATEGORY_VERIFIED
+      // and beyond) no longer consumes a research slot.
       count(
         `SELECT COUNT(*) AS n FROM opportunities
-          WHERE state IN (${research.sql}) AND research_stage >= $${research.params.length + 1}`,
-        [...research.params, DEEP_RESEARCH_STAGE],
+          WHERE state IN ('DISCOVERED','CATEGORY_VERIFYING')
+            AND research_stage >= $1`,
+        [DEEP_RESEARCH_STAGE],
       ),
       count(
         `SELECT COUNT(DISTINCT opportunity_id) AS n FROM campaigns WHERE state IN (${active.sql})`,

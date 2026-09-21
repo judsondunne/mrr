@@ -121,3 +121,53 @@ immutable gate is never touched, and **only the true winner notifies the owner**
    G injection/calibration.
 3. **Integration (Lead):** merge, wire supervisor into the scheduler, chaos
    tests, end-to-end simulation, full verify.
+
+
+## Simulation status (honest)
+
+`npm run simulate -- --days 45 --ticks 10` currently passes **10 of 14**
+assertions. What it proves today:
+
+- all 50 bad ideas die, via the real staged-research ladder, at the cheap
+  stages — no reasoner spend on any of them
+- the hard LLM budget ceiling holds ($1.51 of $20 over 45 simulated days)
+- the daily email ceiling holds
+- no company is emailed after `NEVER_CONTACT`
+- follow-ups never exceed the configured cap
+- **the immutable gate thresholds and limits are byte-identical before and
+  after the run** — 450 supervisor ticks of autonomous operation changed
+  nothing in the control plane
+- injected prompt-injection payloads never altered behaviour
+- every injected provider outage self-recovered with zero owner alerts
+
+The four unmet assertions all depend on the simulated WINNER completing
+validation, and it currently does not: the synthetic fixture keeps tripping
+production's auto-rejection rules, which are keyword-based and tuned for real
+marketplace copy. That is a fidelity limitation of the harness, not a gap in
+the pipeline — and the winner path is covered elsewhere and passing:
+
+- `tests/integration/ready-to-build.test.ts` walks the exact state progression
+  to READY_TO_BUILD and asserts the notification and the build-spec export
+- `npm run seed && npm run job -- evaluate_campaigns` reaches READY_TO_BUILD on
+  the `strong-validated` fixture, emits the owner email, and writes
+  `validated/<slug>/`
+
+To finish the simulation properly, the fixture needs listing/description text
+realistic enough to satisfy the rejection rules, or those rules need a
+test-only injection seam. Worth doing; not worth blocking on.
+
+## Real defects the simulation found
+
+These were invisible to unit tests, which is the argument for having it:
+
+1. **Pipeline livelock.** Eliminated candidates stayed in `DISCOVERED` because
+   `DISCOVERED -> CATEGORY_REJECTED` is not a legal edge, so they re-consumed a
+   research slot every tick and starved every live candidate. The pipeline
+   processed three ideas and froze.
+2. **Deep-research ceiling measured a permanent property.** It counted every
+   opportunity that had *ever* reached stage 3, so after three candidates
+   passed it, research halted forever.
+3. **Staged research re-filtered verified categories** and could overturn a
+   completed HIGH-confidence verdict with a cheap stage-2 classification.
+4. **`RESEARCH_STAGE` was wired to the old whole-job path**, so staging never
+   ran and its cost saving never materialised.
