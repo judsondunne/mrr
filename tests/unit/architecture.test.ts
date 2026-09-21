@@ -28,6 +28,11 @@ async function walk(dir: string): Promise<string[]> {
   return out;
 }
 
+/** Removes // and block comments so scans see code, not prose about code. */
+function stripComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+}
+
 async function filesUnder(...segments: string[]): Promise<Array<{ path: string; text: string }>> {
   const files = await walk(join(SRC, ...segments));
   return Promise.all(
@@ -166,5 +171,110 @@ describe('the system never claims guaranteed revenue', () => {
       }
     }
     expect(offenders).toEqual([]);
+  });
+});
+
+// --- the two-plane rule -------------------------------------------------------
+//
+// "Adaptive" must not be able to become "unconstrained". These scan the real
+// source tree, so they keep holding as the autonomy layer grows.
+
+describe('the autonomy layer cannot reach into the control plane', () => {
+  it('never mints a gate token', async () => {
+    const files = await filesUnder('autonomy');
+    const offenders = files.filter((f) => /__mintGateToken/.test(f.text));
+    expect(
+      offenders.map((o) => o.path),
+      'Only the deterministic validation gate may mint. Adaptive strategy may not.',
+    ).toEqual([]);
+  });
+
+  it('never writes opportunities.state directly', async () => {
+    const files = await filesUnder('autonomy');
+    const offenders = files.filter((f) =>
+      /UPDATE\s+opportunities[\s\S]{0,200}?\bSET\b[\s\S]{0,200}?\bstate\s*=/i.test(f.text),
+    );
+    expect(offenders.map((o) => o.path)).toEqual([]);
+  });
+
+  it('never writes to the tables that hold control-plane outcomes', async () => {
+    // Strategy may propose and measure. It may not edit commitments,
+    // suppression, or the cost ledger — those are the record of what actually
+    // happened and what we are allowed to spend.
+    const files = await filesUnder('autonomy');
+    const protectedTables = ['commitments', 'suppression_list', 'cost_ledger'];
+    const offenders: string[] = [];
+    for (const f of files) {
+      for (const table of protectedTables) {
+        const re = new RegExp(`(UPDATE|DELETE\\s+FROM)\\s+${table}\\b`, 'i');
+        if (re.test(f.text)) offenders.push(`${f.path} -> ${table}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('declares every control-plane field the guard must refuse', async () => {
+    const { FORBIDDEN_STRATEGY_FIELDS } = await import('../../src/autonomy/types');
+    // These are the ones whose absence would be a real hole, not a typo.
+    for (const required of [
+      'monthlyLlmBudgetUsd',
+      'maxEmailsPerDay',
+      'maxFollowups',
+      'allowedOutreachCountries',
+      'minUniqueStrongCommitments',
+      'minUniquePriceAcceptances',
+      'requiredCategoryEvidenceConfidence',
+      'unsubscribeSecret',
+      'killSwitch',
+    ]) {
+      expect(FORBIDDEN_STRATEGY_FIELDS, `${required} must be un-editable by strategy`).toContain(
+        required,
+      );
+    }
+  });
+});
+
+describe('learning optimises on downstream commitments, never on opens', () => {
+  it('no reward computation references opens or clicks', async () => {
+    const files = await filesUnder('autonomy', 'strategy');
+    const offenders = files.filter((f) => {
+      // Scan CODE only. The phrase "opens are never a reward" is a comment we
+      // want to keep, so a naive scan would flag the prohibition itself.
+      const code = stripComments(f.text);
+      return /\breward\b/i.test(code) && /\bopened_at\b|\bopens\b|\bclicked_at\b/i.test(code);
+    });
+    expect(
+      offenders.map((o) => o.path),
+      'Opens are recorded but are never a validation or learning signal.',
+    ).toEqual([]);
+  });
+});
+
+describe('the agent cannot edit its own source', () => {
+  it('no runtime module writes to the filesystem outside the build-spec export', async () => {
+    const files = [...(await filesUnder('autonomy')), ...(await filesUnder('pipeline'))];
+    const offenders: string[] = [];
+    for (const f of files) {
+      // The build-spec generator is the one sanctioned writer, and it only
+      // ever writes under validated/<slug>/.
+      if (f.path.includes(join('pipeline', 'buildspec'))) continue;
+      if (/\bwriteFile\b|\bwriteFileSync\b|\bappendFile\b|\brm\b\(|\bunlink\b/.test(f.text)) {
+        offenders.push(f.path);
+      }
+    }
+    expect(
+      offenders,
+      'The running agent may modify strategy rows, never source files.',
+    ).toEqual([]);
+  });
+
+  it('nothing shells out', async () => {
+    const files = [...(await filesUnder('autonomy')), ...(await filesUnder('pipeline'))];
+    // Note: a bare /exec\(/ would match RegExp.prototype.exec, which is
+    // ordinary parsing. Match process spawning specifically.
+    const offenders = files.filter((f) =>
+      /child_process|execSync|spawnSync|execFile|\bspawn\(/.test(stripComments(f.text)),
+    );
+    expect(offenders.map((o) => o.path)).toEqual([]);
   });
 });

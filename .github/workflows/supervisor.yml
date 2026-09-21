@@ -1,0 +1,98 @@
+# The autonomous loop.
+#
+# This is the ONLY thing that needs to be scheduled. The supervisor decides
+# what happens next — discovery, research, prospecting, sending, replying,
+# evaluating, killing — so there is no per-job cron to maintain and no owner
+# command to run. Everything it does is idempotent, so an overlapping or
+# duplicated run is harmless.
+#
+# Required repository secrets:
+#   APP_BASE_URL  - https://your-app.vercel.app   (no trailing slash)
+#   CRON_SECRET   - must match the deployment's CRON_SECRET
+name: supervisor
+
+on:
+  schedule:
+    # Every 15 minutes. Interested prospects get a reply inside the configured
+    # latency target instead of waiting for a daily batch.
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+    inputs:
+      job:
+        description: 'Run one named job instead of a supervisor tick'
+        required: false
+        default: ''
+
+# Never let two ticks overlap into the same database work. The DB locks make
+# this safe anyway; this just avoids wasting runner minutes.
+concurrency:
+  group: mrr-supervisor
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - name: Supervisor tick
+        env:
+          BASE_URL: ${{ secrets.APP_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          ONE_JOB: ${{ github.event.inputs.job }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BASE_URL:-}" ] || [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::APP_BASE_URL and CRON_SECRET repository secrets are required."
+            exit 1
+          fi
+          target="${BASE_URL}/api/cron?job=supervisor"
+          if [ -n "${ONE_JOB:-}" ]; then target="${BASE_URL}/api/cron?job=${ONE_JOB}"; fi
+
+          code=$(curl -sS -o /tmp/out.json -w '%{http_code}' \
+            -X POST "$target" \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            --max-time 780 --retry 2 --retry-delay 15 --retry-connrefused) || code=000
+          cat /tmp/out.json || true
+          echo
+          # A failed tick is not an incident: the next one is 15 minutes away and
+          # the supervisor recovers its own state. Only a persistent failure is
+          # worth a human's attention, and the watchdog raises that itself.
+          if [ "$code" != "200" ]; then
+            echo "::warning::supervisor tick returned HTTP ${code}"
+          fi
+
+  # Low-frequency strategy work. Separate so a long retrospective can never
+  # delay a prospect reply.
+  cadence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.event_name == 'schedule'
+    steps:
+      - name: Daily and weekly cadence
+        env:
+          BASE_URL: ${{ secrets.APP_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          hour=$(date -u +%H); minute=$(date -u +%M); dow=$(date -u +%u); dom=$(date -u +%d)
+          jobs=""
+          # Daily at 12:00 UTC: discovery planning, strategy update, source
+          # weighting, dead-letter review.
+          if [ "$hour" = "12" ] && [ "$minute" -lt 15 ]; then
+            jobs="daily_strategy"
+          fi
+          # Weekly, Monday 13:00 UTC: retrospective, failure-memory compression,
+          # success-pattern analysis, source performance, prompt calibration.
+          if [ "$dow" = "1" ] && [ "$hour" = "13" ] && [ "$minute" -lt 15 ]; then
+            jobs="weekly_retrospective"
+          fi
+          # Monthly, 1st at 00:00 UTC: budget reset, archive stale experiments.
+          if [ "$dom" = "01" ] && [ "$hour" = "00" ] && [ "$minute" -lt 15 ]; then
+            jobs="monthly_maintenance"
+          fi
+          if [ -z "$jobs" ]; then echo "nothing due this tick"; exit 0; fi
+
+          echo "--- $jobs"
+          curl -sS -X POST "${BASE_URL}/api/cron?job=${jobs}" \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            --max-time 900 --retry 1 || echo "::warning::${jobs} failed; next cycle will retry"
