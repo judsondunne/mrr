@@ -170,6 +170,92 @@ export async function getStrongestEvidence(
   return items.slice(0, limit);
 }
 
+/**
+ * A single real row, reduced to the three things a requirement needs to cite
+ * it: where it lives, which company produced it, and its verbatim text.
+ */
+export interface EvidenceRowRef {
+  origin: EvidenceOrigin;
+  rowId: string;
+  companyKey: string;
+  companyName: string | null;
+  /** Commitment type, or reply classification for a message. */
+  kind: string;
+  /** Verbatim text of the row. Never paraphrased. */
+  text: string;
+}
+
+/**
+ * EVERY row that may be cited as support for a requirement: all commitments
+ * and all inbound replies for the campaign.
+ *
+ * Unlike getStrongestEvidence this does not rank or truncate — the build spec
+ * needs the full corpus so it can prove, row id by row id, that a V1 feature
+ * was asked for by real companies rather than by us.
+ */
+export async function getEvidenceRows(campaignId: string): Promise<EvidenceRowRef[]> {
+  const db = await getDb();
+  const out: EvidenceRowRef[] = [];
+
+  const commitments = await db.query<{
+    id: string;
+    company_key: string;
+    company_name: string | null;
+    type: string;
+    evidence_text: string;
+  }>(
+    `SELECT c.id, c.company_key, p.company_name, c.type, c.evidence_text
+       FROM commitments c
+       LEFT JOIN prospects p ON p.id = c.prospect_id
+      WHERE c.campaign_id = $1 AND length(trim(c.evidence_text)) > 0
+      ORDER BY c.created_at ASC, c.id ASC`,
+    [campaignId],
+  );
+  for (const row of commitments.rows) {
+    out.push({
+      origin: 'commitments',
+      rowId: row.id,
+      companyKey: row.company_key,
+      companyName: row.company_name,
+      kind: row.type,
+      text: normalizeQuote(row.evidence_text),
+    });
+  }
+
+  const replies = await db.query<{
+    id: string;
+    company_name: string | null;
+    domain: string | null;
+    classification: string | null;
+    body: string;
+    requested_feature: string | null;
+  }>(
+    `SELECT m.id, p.company_name, p.domain, m.classification, m.body,
+            m.extraction_json->>'requestedFeature' AS requested_feature
+       FROM messages m
+       LEFT JOIN prospects p ON p.id = m.prospect_id
+      WHERE m.campaign_id = $1 AND m.direction = 'INBOUND'
+        AND length(trim(m.body)) > 0
+      ORDER BY m.created_at ASC, m.id ASC`,
+    [campaignId],
+  );
+  for (const row of replies.rows) {
+    const requested = (row.requested_feature ?? '').trim();
+    out.push({
+      origin: 'messages',
+      rowId: row.id,
+      companyKey: row.domain ?? row.id,
+      companyName: row.company_name,
+      kind: row.classification ?? 'REPLY',
+      // The extracted capability is part of the same row, so appending it keeps
+      // the citation honest while making the row matchable on what was asked for.
+      text: normalizeQuote(requested.length > 0 ? `${row.body} ${requested}` : row.body),
+    });
+  }
+
+  return out;
+}
+
 interface RequirementRow {
   id: string;
   requested_feature: string | null;

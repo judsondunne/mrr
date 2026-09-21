@@ -5,6 +5,7 @@
  * this layer is probabilistic: every field below is produced by SQL counting
  * rows, or by comparing one of those counts to a configured threshold.
  */
+import type { ValidationLevel } from '../../autonomy/types';
 
 export interface GateCheck {
   id: string;
@@ -49,6 +50,38 @@ export interface CampaignCounts {
 export type { HealthVerdict } from '../../lib/campaign-health';
 
 /**
+ * The two confidence labels, defined once in src/autonomy/types.ts. Imported
+ * as a TYPE only, so there is no runtime dependency in either direction.
+ */
+export type { ValidationLevel };
+
+/** Unique-company counts the stronger tier reads. Rows are never counted. */
+export interface RevenueIntentCounts {
+  /** Unique companies that reserved a pilot AT the displayed price. */
+  priceAcceptedReservations: number;
+  /** Unique companies that paid a transparent refundable deposit. */
+  deposits: number;
+  /** Unique companies that voluntarily supplied a payment method. */
+  paymentMethods: number;
+  /** Unique companies that asked for the install to be sent immediately. */
+  immediateInstallRequests: number;
+}
+
+export interface RevenueIntentEvaluation {
+  opportunityId: string;
+  campaignId: string | null;
+  /** True only when every check below passed. Never implied by the gate alone. */
+  achieved: boolean;
+  level: ValidationLevel;
+  checks: GateCheck[];
+  unmetChecks: GateCheck[];
+  counts: RevenueIntentCounts;
+  /** Whether the system is configured to actively solicit paid signals. */
+  pursuitEnabled: boolean;
+  evaluatedAt: string;
+}
+
+/**
  * Stable check identifiers. The dashboard and the audit trail key off these,
  * so they must not be renamed once written to audit_events.
  */
@@ -81,6 +114,20 @@ export const REQUIRED_CHECK_IDS: readonly CheckId[] = [
   CHECK_IDS.mvpBuildDays,
   CHECK_IDS.explainableV1Requirements,
 ];
+
+/**
+ * Check identifiers for the STRONGER tier. Deliberately a separate set: the
+ * ten required gate checks above are a closed list, and nothing here may be
+ * added to it or counted as one of them.
+ */
+export const REVENUE_INTENT_CHECK_IDS = {
+  baseGate: 'REVENUE_INTENT_BASE_GATE',
+  priceAcceptedReservations: 'REVENUE_INTENT_PRICE_ACCEPTED_RESERVATIONS',
+  monetaryOrImmediate: 'REVENUE_INTENT_MONETARY_OR_IMMEDIATE',
+} as const;
+
+export type RevenueIntentCheckId =
+  (typeof REVENUE_INTENT_CHECK_IDS)[keyof typeof REVENUE_INTENT_CHECK_IDS];
 
 export const EMPTY_COUNTS: CampaignCounts = {
   qualifiedProspects: 0,

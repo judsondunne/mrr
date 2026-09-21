@@ -9,6 +9,26 @@ export type { GateCheck, GateEvaluation, CampaignCounts, HealthVerdict } from '.
 export { CHECK_IDS, REQUIRED_CHECK_IDS, EMPTY_COUNTS } from './types';
 export type { CheckId } from './types';
 
+/**
+ * The second, strictly stronger tier. Additive: the ten-check gate above is
+ * unchanged, and VALIDATED_COMMITMENT never implies VALIDATED_REVENUE_INTENT.
+ */
+export { REVENUE_INTENT_CHECK_IDS } from './types';
+export type {
+  RevenueIntentCheckId,
+  RevenueIntentCounts,
+  RevenueIntentEvaluation,
+  ValidationLevel,
+} from './types';
+export {
+  decideRevenueIntent,
+  evaluateRevenueIntent,
+  getRevenueIntentCounts,
+  isImmediateInstallRequest,
+  persistValidationLevel,
+  readValidationLevel,
+} from './revenue-intent';
+
 /** Reads the counts the gate uses. Pure SQL, unique-company based. */
 export { getCampaignCounts } from './counts';
 
@@ -34,6 +54,7 @@ export { getFeasibilityBlockers, recordFeasibilityBlocker } from './blockers';
 export {
   getCompetitorEvidence,
   getCustomerDerivedRequirements,
+  getEvidenceRows,
   getStrongestEvidence,
   getWaitingCompanies,
   clipQuote,
@@ -43,6 +64,7 @@ export type {
   CompetitorEvidence,
   CompetitorPaymentEvidence,
   CustomerRequirement,
+  EvidenceRowRef,
   ProspectEvidenceItem,
   WaitingCompany,
 } from './evidence';
