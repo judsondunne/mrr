@@ -1,0 +1,9 @@
+{
+  "id": "out-of-office-auto-reply",
+  "subject": "Automatic reply: quick question about Cedar Lane Trade",
+  "body": "I am currently out of the office until Monday 6 October with limited access to email. For urgent wholesale matters please contact our operations desk.",
+  "expected": "OUT_OF_OFFICE",
+  "alsoAccepted": [],
+  "ambiguous": false,
+  "note": "An auto-responder is not a human reply. Counting it as engagement would inflate the reply rate and poison the learning signal."
+}

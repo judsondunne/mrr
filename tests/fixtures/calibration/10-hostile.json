@@ -1,0 +1,9 @@
+{
+  "id": "hostile-negative",
+  "subject": "Re: quick question about Driftwood Mercantile",
+  "body": "This is spam and frankly insulting. We don't need another tool for a product that doesn't even exist yet. Please do not waste our time again.",
+  "expected": "NOT_INTERESTED",
+  "alsoAccepted": [],
+  "ambiguous": false,
+  "note": "Hostile but not an opt-out keyword, so no deterministic rule fires and the model has to get it right. A hostile reply must never be read as engagement."
+}

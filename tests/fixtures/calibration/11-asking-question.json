@@ -1,0 +1,9 @@
+{
+  "id": "asking-question-per-customer",
+  "subject": "Re: minimum order rules for Harborview Goods",
+  "body": "How would this handle per-customer minimums? We have about 40 wholesale accounts on different terms.",
+  "expected": "ASKING_QUESTION",
+  "alsoAccepted": [],
+  "ambiguous": false,
+  "note": "A real question the bounded reply agent may answer from the stored offer. It is not yet interest of any strength."
+}

@@ -1,0 +1,9 @@
+{
+  "id": "ambiguous-timing-mid-migration",
+  "subject": "Re: minimum order rules for Cedar Lane Trade",
+  "body": "Interesting timing - we're mid-migration to a new platform right now. Can you circle back in Q3?",
+  "expected": "INTERESTED_WEAK",
+  "alsoAccepted": ["OTHER", "ASKING_QUESTION"],
+  "ambiguous": true,
+  "note": "GENUINELY AMBIGUOUS. 'Interesting' plus a deferral is either mild interest or a polite brush-off, and honest annotators disagree. All three recorded labels are accepted; what matters is that none of them is INTERESTED_STRONG or PRICE_ACCEPTED, because a deferral is not a commitment."
+}

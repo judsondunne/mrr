@@ -1,0 +1,9 @@
+{
+  "id": "price-acceptance-explicit",
+  "subject": "Re: minimum order rules for Harborview Goods",
+  "body": "Yes - $19/month is fine. Sign us up for the pilot, we'd like one of the first installs.",
+  "expected": "PRICE_ACCEPTED",
+  "alsoAccepted": ["INTERESTED_STRONG"],
+  "ambiguous": false,
+  "note": "Explicit acceptance of the stated price plus an access request. Either label is defensible because both routes end in the same commitment extraction; the deterministic commitment rules are what actually count this."
+}

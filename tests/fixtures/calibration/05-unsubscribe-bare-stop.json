@@ -1,0 +1,9 @@
+{
+  "id": "unsubscribe-bare-stop",
+  "subject": "Re: wholesale minimums",
+  "body": "STOP",
+  "expected": "UNSUBSCRIBE",
+  "alsoAccepted": [],
+  "ambiguous": false,
+  "note": "A bare STOP on its own line is an opt-out. 'Stop by our store' is not, which is why the rule is anchored to the line rather than the word."
+}

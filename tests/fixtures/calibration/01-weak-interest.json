@@ -1,0 +1,9 @@
+{
+  "id": "weak-interest-keep-me-posted",
+  "subject": "Re: minimum order rules for Northfield Supply",
+  "body": "Sounds interesting, cool idea. Keep me posted on how it goes.",
+  "expected": "INTERESTED_WEAK",
+  "alsoAccepted": [],
+  "ambiguous": false,
+  "note": "Vague positivity with no ask and no price reaction. This must never read as strong: the entire product depends on weak interest staying weak."
+}
