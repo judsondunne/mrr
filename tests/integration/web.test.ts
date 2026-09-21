@@ -231,7 +231,20 @@ describe('landing page', () => {
     const view = await loadLandingView(slug);
     expect(view?.priceLabel).toBe('$19');
     expect(view?.ctaLabel).toBe('Join the pilot at $19/month');
-    expect(JSON.stringify(view)).not.toContain('999');
+
+    // Assert on the price-bearing fields specifically. Scanning the whole
+    // serialized view for "999" was flaky: opportunity/campaign ids are random,
+    // so a run whose generated id happened to contain "999" failed for no real
+    // reason. These are the only places a fabricated price could surface.
+    for (const field of [
+      view?.priceLabel,
+      view?.ctaLabel,
+      view?.priceCheckboxLabel,
+      String(view?.copy.priceMonthly ?? ''),
+      String((view?.copy as { price?: unknown } | undefined)?.price ?? ''),
+    ]) {
+      expect(field ?? '').not.toContain('999');
+    }
   });
 
   it('falls back to stored wedge/offer data instead of inventing copy', async () => {
