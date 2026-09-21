@@ -21,7 +21,8 @@ import { createLogger } from '../../lib/logger';
 import { llmComplete } from '../../lib/llm/index';
 import type { ReplyAnalysis, ReplyClassification } from '../../lib/contracts';
 import { buildFooter, withHeaders, validateCompliance, type ComposedMessage, type ProspectContext } from './compose';
-import { formatPrice, type OfferContext } from './offer';
+import { formatPrice, isFeaturePlanned, featureTokens, type OfferContext } from './offer';
+import { detectQuestions, type ConversationState, type QuestionKey } from './conversation';
 
 const logger = createLogger('outreach:reply-agent');
 
@@ -194,6 +195,8 @@ const REPLY_SYSTEM = [
   'If the answer is not in the OFFER, set canAnswerFromOffer=false and needsHuman=true.',
   'NEVER: promise a date, promise an integration, offer a discount, discuss contracts or legal/compliance topics,',
   'invent a feature, or propose a call. The goal is a commitment to the pilot, not a meeting.',
+  'ALREADY_ANSWERED lists things this thread has already covered. Never repeat or re-ask them.',
+  'ALREADY_STATED contains sentences code has already written into this same reply. Do not restate them.',
   'Plain sentences. No greeting, no sign-off, no links — those are added by code.',
 ].join('\n');
 
@@ -202,11 +205,132 @@ export interface AutoReplyDecision {
   requiresHuman: boolean;
   reason: string;
   violations: string[];
+  /** Question keys this reply actually answered, for the conversation record. */
+  answered: QuestionKey[];
+  /** The price this reply quoted, if it quoted one. */
+  quotedPrice: number | null;
+  /** Capabilities the prospect asked for that the pilot does NOT include. */
+  featureRequests: string[];
+}
+
+function makeDecision(overrides: Partial<AutoReplyDecision>): AutoReplyDecision {
+  return {
+    message: null,
+    requiresHuman: false,
+    reason: 'OK',
+    violations: [],
+    answered: [],
+    quotedPrice: null,
+    featureRequests: [],
+    ...overrides,
+  };
 }
 
 export function shouldAttemptAutoReply(analysis: ReplyAnalysis): boolean {
   if (analysis.requiresHuman) return false;
   return REPLYABLE.has(analysis.classification);
+}
+
+// --- deterministic answers ---------------------------------------------------
+
+/**
+ * Replies whose only correct response is "reserve a spot". Somebody saying
+ * "I'd use this" does not need a model to be asked what they meant.
+ */
+const RESERVATION_INTENT: ReadonlySet<ReplyClassification> = new Set<ReplyClassification>([
+  'INTERESTED_STRONG',
+  'WANTS_PILOT',
+  'PRICE_ACCEPTED',
+]);
+
+export interface DeterministicAnswer {
+  key: QuestionKey;
+  text: string;
+  /** Set when the answer was "that is not in the pilot" and we owe a log entry. */
+  featureRequest?: string;
+}
+
+/**
+ * The answers code is allowed to give on its own, because they are facts about
+ * the stored offer rather than judgement calls:
+ *
+ *   PRICE    - the price assigned to THIS prospect, stated exactly.
+ *   TIMELINE - the truth: not built, being validated, and no date. Ever.
+ *   FEATURE  - planned for the pilot, or explicitly not part of it.
+ *
+ * Everything else is left to the model, which is then re-checked by
+ * checkReplySafety before a single byte reaches anybody.
+ */
+export function deterministicAnswers(params: {
+  questions: readonly QuestionKey[];
+  analysis: ReplyAnalysis;
+  offer: OfferContext;
+}): DeterministicAnswer[] {
+  const { questions, analysis, offer } = params;
+  const out: DeterministicAnswer[] = [];
+
+  if (questions.includes('PRICE')) {
+    out.push({ key: 'PRICE', text: `It's ${formatPrice(offer.priceMonthly)}/month.` });
+  }
+
+  if (questions.includes('TIMELINE')) {
+    // No date. Not "soon", not "shortly", not a quarter. This sentence is
+    // deliberately fixed so no generated text can drift into a promise.
+    out.push({
+      key: 'TIMELINE',
+      text:
+        "It isn't built yet — I'm validating it first, so I can't give you a date. " +
+        'Pilot stores get the first install if it goes ahead.',
+    });
+  }
+
+  const requested = analysis.requestedFeature?.trim() ?? '';
+  if (questions.includes('FEATURE') && requested !== '') {
+    const planned = plannedCapabilityFor(requested, offer);
+    if (planned) {
+      out.push({ key: 'FEATURE', text: `${capitalize(planned)} is planned for the pilot.` });
+    } else {
+      out.push({
+        key: 'FEATURE',
+        text: notInPilotSentence(requested, offer),
+        featureRequest: requested.slice(0, 200),
+      });
+    }
+  }
+
+  return out;
+}
+
+/** The stored capability that actually covers what they asked for, if any. */
+function plannedCapabilityFor(feature: string, offer: OfferContext): string | null {
+  if (!isFeaturePlanned(feature, offer)) return null;
+  const asked = featureTokens(feature);
+  for (const capability of offer.copy.capabilities) {
+    const have = new Set(featureTokens(capability));
+    const overlap = asked.filter((token) => have.has(token)).length;
+    if (asked.length > 0 && overlap / asked.length >= 0.6) return capability;
+  }
+  return offer.copy.capabilities[0] ?? null;
+}
+
+/**
+ * Naming the feature is clearer, but only if naming it does not itself trip
+ * the invented-feature gate — "csv export is not part of the pilot" is honest
+ * and still must not smuggle "csv export" into a message about an offer that
+ * never mentioned it. So the specific wording is tried, checked, and dropped
+ * to a generic denial if it fails.
+ */
+function notInPilotSentence(feature: string, offer: OfferContext): string {
+  const generic = "That isn't part of the proposed pilot, so I can't promise it.";
+  const cleaned = feature.replace(/\s+/g, ' ').trim().slice(0, 120);
+  if (cleaned === '' || /[\n\r<>{}]/.test(cleaned)) return generic;
+  const specific = `${capitalize(cleaned)} isn't part of the proposed pilot, so I can't promise it.`;
+  return checkReplySafety(specific, offer).ok ? specific : generic;
+}
+
+function capitalize(text: string): string {
+  const t = text.trim();
+  return t === '' ? t : t.charAt(0).toUpperCase() + t.slice(1);
 }
 
 /** The fixed, honest close. Asks for the commitment; never for a call. */
@@ -238,6 +362,17 @@ export function assembleReplyBody(params: {
 /**
  * Drafts an auto-reply, or refuses. A refusal is a normal, expected outcome:
  * requires_human is set on the inbound message and a person answers it.
+ *
+ * Order of authority, strongest first:
+ *   1. CODE answers what code can answer exactly — the assigned price, the
+ *      no-date truth, and whether a requested capability is in the pilot.
+ *   2. The MODEL is asked only for what is left, and only for this thread's
+ *      unanswered questions.
+ *   3. checkReplySafety re-reads whatever came back, and a violation means a
+ *      human answers instead.
+ *
+ * `conversation` is the memory: it stops the agent greeting somebody twice,
+ * re-asking a question they already answered, or quoting a second price.
  */
 export async function draftAutoReply(params: {
   analysis: ReplyAnalysis;
@@ -245,48 +380,81 @@ export async function draftAutoReply(params: {
   offer: OfferContext;
   prospect: ProspectContext;
   subject: string;
+  conversation?: ConversationState | null;
 }): Promise<AutoReplyDecision> {
   const cfg = getConfig();
   const { analysis, offer, prospect } = params;
+  const conversation = params.conversation ?? null;
 
   if (!shouldAttemptAutoReply(analysis)) {
-    return { message: null, requiresHuman: analysis.requiresHuman, reason: 'NOT_AUTO_REPLYABLE', violations: [] };
+    return makeDecision({ requiresHuman: analysis.requiresHuman, reason: 'NOT_AUTO_REPLYABLE' });
   }
 
-  let answer = '';
+  const questions = detectQuestions(params.replyText);
+  const fixed = deterministicAnswers({ questions, analysis, offer });
+  const fixedKeys = new Set(fixed.map((a) => a.key));
+  const answeredKeys: QuestionKey[] = [...fixedKeys];
+  const featureRequests = fixed.map((a) => a.featureRequest).filter((f): f is string => typeof f === 'string');
+  const unanswered = questions.filter((q) => !fixedKeys.has(q));
+
+  // Nothing left for a model to add: a pure intent-to-use reply, or one whose
+  // every question code already answered exactly. Skip the call entirely.
+  const pureIntent = RESERVATION_INTENT.has(analysis.classification) && questions.length === 0;
+  const fullyAnswered = fixed.length > 0 && unanswered.length === 0;
+
+  let answer = fixed.map((a) => a.text).join(' ');
   let question: string | null = null;
-  try {
-    const res = await llmComplete({
-      tier: 'fast',
-      task: 'outreach.auto_reply',
-      schemaName: 'ReplyAnswer',
-      maxTokens: 500,
-      schema: ReplyAnswer,
-      system: REPLY_SYSTEM,
-      user: JSON.stringify({
-        offer: {
-          productName: offer.copy.productName,
-          outcome: offer.copy.outcome,
-          capabilities: offer.copy.capabilities,
-          priceMonthly: offer.priceMonthly,
-          whoItIsFor: offer.copy.whoItIsFor,
-          workflow: offer.copy.workflow,
-          buildStatus: offer.copy.buildStatus,
-          validationDisclosure: offer.copy.validationDisclosure,
-        },
-        classification: analysis.classification,
-        theirReply: params.replyText.slice(0, 4000),
-      }),
-    });
-    if (!res.data.canAnswerFromOffer || res.data.needsHuman) {
-      return { message: null, requiresHuman: true, reason: 'NOT_ANSWERABLE_FROM_OFFER', violations: [] };
+
+  if (!pureIntent && !fullyAnswered) {
+    try {
+      const res = await llmComplete({
+        tier: 'fast',
+        // Inbound email spend belongs to the REPLY sub-budget, not RESEARCH.
+        phase: 'REPLY',
+        task: 'outreach.auto_reply',
+        schemaName: 'ReplyAnswer',
+        maxTokens: 500,
+        schema: ReplyAnswer,
+        system: REPLY_SYSTEM,
+        user: JSON.stringify({
+          offer: {
+            productName: offer.copy.productName,
+            outcome: offer.copy.outcome,
+            capabilities: offer.copy.capabilities,
+            priceMonthly: offer.priceMonthly,
+            whoItIsFor: offer.copy.whoItIsFor,
+            workflow: offer.copy.workflow,
+            buildStatus: offer.copy.buildStatus,
+            validationDisclosure: offer.copy.validationDisclosure,
+          },
+          classification: analysis.classification,
+          openQuestions: unanswered,
+          ALREADY_ANSWERED: conversation?.answered ?? [],
+          ALREADY_STATED: fixed.map((a) => a.text),
+          commitmentLevel: conversation?.commitmentLevel ?? 'NONE',
+        }),
+        // The merchant's own words are DATA. Fenced by the LLM layer so no
+        // instruction inside an inbound email can ever be followed.
+        untrusted: { inbound_email: params.replyText.slice(0, 4000) },
+      });
+      if (!res.data.canAnswerFromOffer || res.data.needsHuman) {
+        // Code may still have answered exactly; if it did, send that alone.
+        if (fixed.length === 0) {
+          return makeDecision({ requiresHuman: true, reason: 'NOT_ANSWERABLE_FROM_OFFER' });
+        }
+      } else {
+        answer = [answer, res.data.answer].filter((s) => s.trim() !== '').join(' ');
+        question = res.data.clarifyingQuestion;
+      }
+    } catch (err) {
+      logger.error('auto-reply generation failed', { err: String(err) });
+      if (fixed.length === 0) return makeDecision({ requiresHuman: true, reason: 'GENERATION_FAILED' });
     }
-    answer = res.data.answer;
-    question = res.data.clarifyingQuestion;
-  } catch (err) {
-    logger.error('auto-reply generation failed', { err: String(err) });
-    return { message: null, requiresHuman: true, reason: 'GENERATION_FAILED', violations: [] };
   }
+
+  // Never re-ask something this thread already covered, and never interrogate
+  // somebody who has already committed.
+  question = suppressRepeatQuestion(question, conversation);
 
   // Check the generated sentences on their own first, so a violation is
   // attributed to the model rather than to our fixed scaffolding.
@@ -294,13 +462,13 @@ export async function draftAutoReply(params: {
   const generatedSafety = checkReplySafety(generatedOnly, offer);
   if (!generatedSafety.ok) {
     logger.warn('auto-reply draft rejected by the safety check', { violations: generatedSafety.violations });
-    return { message: null, requiresHuman: true, reason: 'UNSAFE_CONTENT', violations: generatedSafety.violations };
+    return makeDecision({ requiresHuman: true, reason: 'UNSAFE_CONTENT', violations: generatedSafety.violations });
   }
 
   const text = assembleReplyBody({ answer, question, offer, prospect, cfg });
   const fullSafety = checkReplySafety(text, offer);
   if (!fullSafety.ok) {
-    return { message: null, requiresHuman: true, reason: 'UNSAFE_CONTENT', violations: fullSafety.violations };
+    return makeDecision({ requiresHuman: true, reason: 'UNSAFE_CONTENT', violations: fullSafety.violations });
   }
 
   // Reply threading comes from In-Reply-To/References headers, not from a
@@ -314,8 +482,35 @@ export async function draftAutoReply(params: {
   const compliance = validateCompliance(message, cfg);
   if (!compliance.ok) {
     logger.error('auto-reply failed compliance', { violations: compliance.violations });
-    return { message: null, requiresHuman: true, reason: 'NON_COMPLIANT', violations: compliance.violations };
+    return makeDecision({ requiresHuman: true, reason: 'NON_COMPLIANT', violations: compliance.violations });
   }
 
-  return { message, requiresHuman: false, reason: 'OK', violations: [] };
+  return makeDecision({
+    message,
+    reason: 'OK',
+    // The close always quotes the price, so every reply answers PRICE.
+    answered: Array.from(new Set<QuestionKey>([...answeredKeys, 'PRICE'])),
+    quotedPrice: offer.priceMonthly,
+    featureRequests,
+  });
+}
+
+/**
+ * Drops a clarifying question the thread has already asked or answered. A
+ * committed prospect is never asked anything at all — they said yes.
+ */
+export function suppressRepeatQuestion(
+  question: string | null,
+  conversation: ConversationState | null,
+): string | null {
+  if (!question || question.trim() === '') return null;
+  if (!conversation) return question;
+  if (conversation.commitmentLevel === 'COMMITTED' || conversation.commitmentLevel === 'DECLINED') return null;
+  const covered = new Set<QuestionKey>([...conversation.answered, ...conversation.asked]);
+  const keys = detectQuestions(question);
+  if (keys.length > 0 && keys.every((key) => covered.has(key))) {
+    logger.info('dropped a clarifying question this thread already covered', { keys });
+    return null;
+  }
+  return question;
 }

@@ -14,8 +14,9 @@ import { createLogger } from '../../lib/logger';
 import { assertCompliant, composeFollowupMessage } from './compose';
 import { ComplianceError } from './errors';
 import { idempotencyKeyFor, insertDraftMessage, prospectContextFromRow, type ProspectRow } from './drafts';
-import { offerFromRow, type OfferContext } from './offer';
+import { offerAtPrice, offerFromRow, type OfferContext } from './offer';
 import { isCountryAllowed } from './suppression';
+import { getAssignedPrice } from '../../autonomy/pricing';
 
 const logger = createLogger('outreach:followups');
 
@@ -112,11 +113,16 @@ export async function scheduleFollowups(): Promise<{ queued: number }> {
       if (!prospect) continue;
       if (!isCountryAllowed(row.country, cfg.allowedOutreachCountries)) continue;
 
-      const offer = offerFor(row);
-      if (!offer) {
+      const base = offerFor(row);
+      if (!base) {
         logger.warn('campaign has unusable landing copy; not following up', { campaignId: row.campaign_id });
         continue;
       }
+
+      // The price this prospect was originally quoted, never the campaign
+      // default: a follow-up that changes the number is a bait and switch.
+      const assigned = await getAssignedPrice({ campaignId: row.campaign_id, prospectId: prospect.id });
+      const offer = offerAtPrice(base, assigned);
 
       const message = composeFollowupMessage(step === 1 ? 1 : 2, prospect, offer);
       try {

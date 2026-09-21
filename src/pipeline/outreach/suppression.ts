@@ -12,6 +12,7 @@ import { getDb, many, one } from '../../lib/db';
 import { newId } from '../../lib/hash';
 import { createLogger } from '../../lib/logger';
 import { recordAudit } from '../../lib/audit';
+import { markNeverContact } from '../../autonomy/company';
 
 const logger = createLogger('outreach:suppression');
 
@@ -130,6 +131,18 @@ export async function suppress(params: SuppressParams): Promise<void> {
       );
     }
   });
+
+  // An opt-out is about the BUSINESS, not one mailbox. Marking the company
+  // NEVER_CONTACT is what stops an unrelated experiment emailing the same
+  // shop at a different published address six months later. It is terminal:
+  // there is no code path anywhere that clears it.
+  const terminal: readonly string[] = ['UNSUBSCRIBE', 'EXPLICIT_STOP', 'COMPLAINT'];
+  if (terminal.includes(reason)) {
+    const key = companyKeyFor({ domain, email });
+    if (key !== 'unknown') {
+      await markNeverContact(key, `suppression:${reason}`);
+    }
+  }
 
   logger.info('suppressed', { hasEmail: Boolean(email), domain, reason });
   await recordAudit({

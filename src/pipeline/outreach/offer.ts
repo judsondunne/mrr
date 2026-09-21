@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { getConfig } from '../../lib/config';
 import { one } from '../../lib/db';
 import { Wedge } from '../../lib/contracts';
+import { getAssignedPrice } from '../../autonomy/pricing';
 
 /** Exactly what the web layer renders at /v/[slug]. Validated on read and write. */
 export const LandingCopy = z.object({
@@ -65,6 +66,27 @@ function clamp(text: string, max: number, fallback: string): string {
 }
 
 /**
+ * The three copy fields that quote a number. Factored out so that re-pricing
+ * an offer for a price-experiment arm regenerates all of them together — a
+ * body that says $29 next to a disclosure that says $19 is a lie, not a typo.
+ */
+function priceBearingCopy(ecosystem: string, priceMonthly: number): {
+  earlyAccess: string;
+  validationDisclosure: string;
+  cta: string;
+} {
+  const price = formatPrice(priceMonthly);
+  return {
+    earlyAccess: `Early access: the first pilot installs go to stores that join now, at ${price}/month.`,
+    validationDisclosure:
+      `This ${ecosystem} app does not exist yet. It is being validated before it is built: ` +
+      `if enough stores want it at ${price}/month I build it and pilot stores get the first install. ` +
+      `Nothing is charged today.`,
+    cta: `Join the pilot at ${price}/month`,
+  };
+}
+
+/**
  * Builds the landing copy from the wedge. Deterministic — no LLM. Every field
  * is either copied from verified wedge content or is a fixed honest statement.
  */
@@ -75,7 +97,6 @@ export function buildLandingCopy(params: {
 }): LandingCopy {
   const { wedge, priceMonthly } = params;
   const ecosystem = displayEcosystem(params.ecosystem);
-  const price = formatPrice(priceMonthly);
   const capabilities = wedge.capabilities.length >= 3 ? wedge.capabilities : wedge.v1Features;
 
   return LandingCopy.parse({
@@ -90,15 +111,28 @@ export function buildLandingCopy(params: {
       400,
       `the setup ${wedge.primaryCompetitor || 'existing tools'} requires`,
     ),
-    earlyAccess: `Early access: the first pilot installs go to stores that join now, at ${price}/month.`,
     buildStatus: 'BEING_VALIDATED_NOT_BUILT',
-    validationDisclosure:
-      `This ${ecosystem} app does not exist yet. It is being validated before it is built: ` +
-      `if enough stores want it at ${price}/month I build it and pilot stores get the first install. ` +
-      `Nothing is charged today.`,
-    cta: `Join the pilot at ${price}/month`,
     ecosystem,
+    ...priceBearingCopy(ecosystem, priceMonthly),
   });
+}
+
+/**
+ * The same offer, re-quoted at one prospect's assigned experiment price.
+ *
+ * Returns the offer unchanged when the price is the campaign's own, so the
+ * common no-experiment path allocates nothing and cannot drift.
+ */
+export function offerAtPrice(offer: OfferContext, priceMonthly: number | null): OfferContext {
+  if (priceMonthly === null || !Number.isFinite(priceMonthly) || priceMonthly <= 0) return offer;
+  if (priceMonthly === offer.priceMonthly) return offer;
+  const copy = LandingCopy.safeParse({
+    ...offer.copy,
+    priceMonthly,
+    ...priceBearingCopy(offer.copy.ecosystem, priceMonthly),
+  });
+  if (!copy.success) return offer;
+  return { ...offer, priceMonthly, copy: copy.data };
 }
 
 export function parseJsonColumn(value: unknown): unknown {
@@ -148,6 +182,57 @@ export function offerFromRow(row: {
   };
 }
 
+/**
+ * The offer as ONE prospect must see it: the campaign offer re-quoted at the
+ * price permanently assigned to them. Every path that talks to a prospect —
+ * initial message, follow-ups, auto-replies — goes through this, so a thread
+ * can never change its price halfway.
+ */
+export async function loadOfferForProspect(
+  campaignId: string,
+  prospectId: string | null,
+): Promise<OfferContext | null> {
+  const offer = await loadOffer(campaignId);
+  if (!offer || !prospectId) return offer;
+  const assigned = await getAssignedPrice({ campaignId, prospectId });
+  return offerAtPrice(offer, assigned);
+}
+
 export function landingUrlFor(slug: string): string {
   return `${getConfig().publicBaseUrl}/v/${slug}`;
+}
+
+/**
+ * Is this the sort of thing the pilot already promises?
+ *
+ * Deterministic token overlap against the stored capabilities — no model, and
+ * no benefit of the doubt: an unclear match is NOT planned, because the cost
+ * of wrongly saying "yes, that's planned" is a promise we cannot keep.
+ */
+const FEATURE_STOPWORDS: ReadonlySet<string> = new Set([
+  'the', 'a', 'an', 'and', 'or', 'of', 'for', 'to', 'in', 'on', 'with', 'by', 'at', 'is', 'it',
+  'this', 'that', 'can', 'do', 'does', 'will', 'would', 'support', 'supports', 'handle', 'handles',
+  'app', 'feature', 'able', 'any', 'our', 'your', 'we', 'you', 'us', 'per',
+]);
+
+export function featureTokens(text: string): string[] {
+  return (text ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, ' ')
+    .split(/[\s-]+/)
+    .filter((t) => t.length > 2 && !FEATURE_STOPWORDS.has(t));
+}
+
+export function isFeaturePlanned(feature: string, offer: OfferContext): boolean {
+  const asked = featureTokens(feature);
+  if (asked.length === 0) return false;
+  const candidates = [...offer.copy.capabilities, offer.copy.outcome, offer.copy.workflow];
+  for (const candidate of candidates) {
+    const have = new Set(featureTokens(candidate));
+    if (have.size === 0) continue;
+    const overlap = asked.filter((token) => have.has(token)).length;
+    // Most of what they asked for has to already be in the stored copy.
+    if (overlap / asked.length >= 0.6) return true;
+  }
+  return false;
 }
