@@ -7,6 +7,9 @@ import type { z } from 'zod';
  */
 export type LlmTier = 'fast' | 'reasoner';
 
+/** Which sub-budget a call is charged to. */
+export type SpendPhase = 'DISCOVERY' | 'RESEARCH' | 'PROSPECTING' | 'REPLY' | 'FINAL_ANALYSIS';
+
 export interface LlmRequest<T> {
   tier: LlmTier;
   /** Short, stable name used for the cache key and the cost ledger metadata. */
@@ -18,6 +21,23 @@ export interface LlmRequest<T> {
   maxTokens?: number;
   /** Set false for genuinely time-varying prompts. Default true. */
   cacheable?: boolean;
+  /**
+   * Prompt identity. Bumping `promptVersion` changes the cache key AND is
+   * recorded on the output, so learning never compares results produced by two
+   * different prompts as though they were the same experiment.
+   */
+  promptId?: string;
+  promptVersion?: number;
+  /** Sub-budget to charge. Defaults to RESEARCH. */
+  phase?: SpendPhase;
+  /** Attributes spend to one opportunity for information-value ranking. */
+  opportunityId?: string | null;
+  /**
+   * External text (web pages, emails, reviews) that must be treated as DATA.
+   * Passing it here rather than concatenating into `user` lets the LLM layer
+   * fence it consistently. See src/autonomy/injection.ts.
+   */
+  untrusted?: Record<string, string>;
 }
 
 export interface LlmResponse<T> {
@@ -27,6 +47,10 @@ export interface LlmResponse<T> {
   estimatedCost: number;
   model: string;
   cached: boolean;
+  /** True when the primary provider failed and a configured fallback answered. */
+  usedFallback?: boolean;
+  promptId?: string;
+  promptVersion?: number;
 }
 
 export interface LlmProvider {

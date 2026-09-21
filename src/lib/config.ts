@@ -33,6 +33,27 @@ function csv(key: string, fallback: string[]): string[] {
   return raw.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
 }
 
+function clamp01(v: number): number {
+  return Math.min(1, Math.max(0, v));
+}
+function intList(key: string, fallback: number[]): number[] {
+  const raw = str(key);
+  if (raw === '') return fallback;
+  const parts = raw.split(',').map((s) => Number(s.trim())).filter((n) => Number.isFinite(n) && n > 0);
+  return parts.length > 0 ? parts : fallback;
+}
+/** "2:10,4:20,7:35" => send at most 10/day through day 2, 20 through day 4, ... */
+function parseWarmup(raw: string): Array<{ throughDay: number; maxPerDay: number }> {
+  const out: Array<{ throughDay: number; maxPerDay: number }> = [];
+  for (const pair of raw.split(',')) {
+    const [d, n] = pair.split(':').map((s) => Number(s.trim()));
+    if (Number.isFinite(d) && Number.isFinite(n) && d! > 0 && n! > 0) {
+      out.push({ throughDay: d!, maxPerDay: n! });
+    }
+  }
+  return out.sort((a, b) => a.throughDay - b.throughDay);
+}
+
 // --- shape -------------------------------------------------------------------
 
 export type DatabaseMode = 'auto' | 'postgres' | 'pglite';
@@ -124,6 +145,79 @@ export interface Config {
   enablePaymentMethodValidation: boolean;
   stripeSecretKey: string;
   stripePublishableKey: string;
+
+  /**
+   * AUTONOMY. Everything here is CONTROL PLANE: typed, env-driven, and with no
+   * write path from any LLM. The adaptive strategy plane lives in database
+   * rows, never here.
+   */
+  autoStart: boolean;
+  supervisorIntervalMinutes: number;
+  replyLatencyTargetMinutes: number;
+
+  concurrency: {
+    maxResearchOpportunities: number;
+    maxDeepResearchOpportunities: number;
+    maxActiveValidations: number;
+    maxUnsentProspects: number;
+    maxMonthlyExperiments: number;
+  };
+
+  learning: {
+    /** Share of allocation always reserved for untried hypotheses. */
+    explorationRatio: number;
+    /** Below this many trials an arm may not be declared a winner. */
+    minSampleSize: number;
+    minDeliveredForVariantComparison: number;
+    /** Downstream reward weights. Opens are absent on purpose. */
+    rewardWeights: {
+      strongCommitment: number;
+      priceAcceptance: number;
+      pilotSignup: number;
+      strongReply: number;
+      qualifiedReply: number;
+    };
+    failureSimilarityThreshold: number;
+  };
+
+  subBudgets: {
+    discoveryPct: number;
+    researchPct: number;
+    prospectingPct: number;
+    replyPct: number;
+    finalAnalysisPct: number;
+  };
+
+  deliverability: {
+    /** Per-campaign cumulative ramp. Earned one step at a time. */
+    rampSteps: number[];
+    /** Domain warm-up: max sends/day by days since first send. */
+    warmupSchedule: Array<{ throughDay: number; maxPerDay: number }>;
+    pauseCooldownHours: number;
+  };
+
+  company: {
+    cooldownDays: number;
+    negativeReplyCooldownDays: number;
+  };
+
+  evidence: {
+    pricingTtlHours: number;
+    platformCapabilityTtlHours: number;
+    prospectTtlHours: number;
+  };
+
+  revenueIntent: {
+    enabled: boolean;
+    minPriceAcceptedReservations: number;
+    minDeposits: number;
+    minPaymentMethods: number;
+    minImmediateInstallRequests: number;
+  };
+
+  llmFallbackProvider: LlmProviderName | '';
+  llmFastFallback: string;
+  llmReasonerFallback: string;
 
   userAgent: string;
   fetchTimeoutMs: number;
@@ -221,6 +315,69 @@ function build(): Config {
     enablePaymentMethodValidation: bool('ENABLE_PAYMENT_METHOD_VALIDATION', false),
     stripeSecretKey: str('STRIPE_SECRET_KEY'),
     stripePublishableKey: str('STRIPE_PUBLISHABLE_KEY'),
+
+    autoStart: bool('AUTO_START', true),
+    supervisorIntervalMinutes: int('SUPERVISOR_INTERVAL_MINUTES', 15),
+    replyLatencyTargetMinutes: int('REPLY_LATENCY_TARGET_MINUTES', 15),
+
+    concurrency: {
+      maxResearchOpportunities: int('MAX_RESEARCH_OPPORTUNITIES', 10),
+      maxDeepResearchOpportunities: int('MAX_DEEP_RESEARCH_OPPORTUNITIES', 3),
+      maxActiveValidations: int('MAX_ACTIVE_VALIDATIONS', 2),
+      maxUnsentProspects: int('MAX_UNSENT_PROSPECTS', 600),
+      maxMonthlyExperiments: int('MAX_MONTHLY_EXPERIMENTS', 8),
+    },
+
+    learning: {
+      explorationRatio: clamp01(num('EXPLORATION_RATIO', 0.25)),
+      minSampleSize: int('MIN_SAMPLE_SIZE', 30),
+      minDeliveredForVariantComparison: int('MIN_DELIVERED_FOR_VARIANT_COMPARISON', 40),
+      rewardWeights: {
+        strongCommitment: num('REWARD_STRONG_COMMITMENT', 1.0),
+        priceAcceptance: num('REWARD_PRICE_ACCEPTANCE', 0.8),
+        pilotSignup: num('REWARD_PILOT_SIGNUP', 0.7),
+        strongReply: num('REWARD_STRONG_REPLY', 0.3),
+        qualifiedReply: num('REWARD_QUALIFIED_REPLY', 0.1),
+      },
+      failureSimilarityThreshold: clamp01(num('FAILURE_SIMILARITY_THRESHOLD', 0.8)),
+    },
+
+    subBudgets: {
+      discoveryPct: clamp01(num('BUDGET_DISCOVERY_PCT', 0.15)),
+      researchPct: clamp01(num('BUDGET_RESEARCH_PCT', 0.3)),
+      prospectingPct: clamp01(num('BUDGET_PROSPECTING_PCT', 0.25)),
+      replyPct: clamp01(num('BUDGET_REPLY_PCT', 0.2)),
+      finalAnalysisPct: clamp01(num('BUDGET_FINAL_ANALYSIS_PCT', 0.1)),
+    },
+
+    deliverability: {
+      rampSteps: intList('CAMPAIGN_RAMP_STEPS', [10, 25, 50, 75]),
+      warmupSchedule: parseWarmup(str('DOMAIN_WARMUP_SCHEDULE', '2:10,4:20,7:35')),
+      pauseCooldownHours: int('DELIVERABILITY_PAUSE_COOLDOWN_HOURS', 24),
+    },
+
+    company: {
+      cooldownDays: int('COMPANY_COOLDOWN_DAYS', 90),
+      negativeReplyCooldownDays: int('NEGATIVE_REPLY_COOLDOWN_DAYS', 365),
+    },
+
+    evidence: {
+      pricingTtlHours: int('EVIDENCE_PRICING_TTL_HOURS', 336),
+      platformCapabilityTtlHours: int('EVIDENCE_PLATFORM_TTL_HOURS', 720),
+      prospectTtlHours: int('EVIDENCE_PROSPECT_TTL_HOURS', 720),
+    },
+
+    revenueIntent: {
+      enabled: bool('ENABLE_PAID_VALIDATION', false),
+      minPriceAcceptedReservations: int('REVENUE_INTENT_MIN_RESERVATIONS', 5),
+      minDeposits: int('REVENUE_INTENT_MIN_DEPOSITS', 1),
+      minPaymentMethods: int('REVENUE_INTENT_MIN_PAYMENT_METHODS', 3),
+      minImmediateInstallRequests: int('REVENUE_INTENT_MIN_INSTALL_REQUESTS', 3),
+    },
+
+    llmFallbackProvider: (str('LLM_FALLBACK_PROVIDER') as LlmProviderName | ''),
+    llmFastFallback: str('LLM_FAST_FALLBACK'),
+    llmReasonerFallback: str('LLM_REASONER_FALLBACK'),
 
     userAgent: str('USER_AGENT', 'MRRValidatorBot/0.1 (+https://example.com/bot; research crawler)'),
     fetchTimeoutMs: int('FETCH_TIMEOUT_MS', 15_000),

@@ -20,28 +20,46 @@ export type ResourceType =
   | 'SEARCH_CALL'
   | 'EMAIL_SENT';
 
+/** Which sub-budget a spend is charged to. */
+export type SpendPhase = 'DISCOVERY' | 'RESEARCH' | 'PROSPECTING' | 'REPLY' | 'FINAL_ANALYSIS';
+
 export interface CostEntry {
   provider: CostProvider;
   resourceType: ResourceType;
   quantity: number;
   estimatedCost: number;
   metadata?: Record<string, unknown>;
+  /** Sub-budget attribution. Sub-budgets may borrow; the global cap is hard. */
+  phase?: SpendPhase;
+  /** Lets the supervisor rank information-per-dollar per opportunity. */
+  opportunityId?: string | null;
+  promptId?: string;
+  promptVersion?: number;
 }
 
 export async function recordCost(entry: CostEntry): Promise<void> {
   const db = await getDb();
-  await db.query(
-    `INSERT INTO cost_ledger (id, provider, resource_type, quantity, estimated_cost, metadata_json)
-     VALUES ($1,$2,$3,$4,$5,$6)`,
-    [
-      newId('cost'),
-      entry.provider,
-      entry.resourceType,
-      entry.quantity,
-      entry.estimatedCost,
-      JSON.stringify(entry.metadata ?? {}),
-    ],
-  );
+  await db.query(COST_INSERT_SQL, costInsertParams(entry));
+}
+
+const COST_INSERT_SQL = `INSERT INTO cost_ledger
+    (id, provider, resource_type, quantity, estimated_cost, metadata_json,
+     phase, opportunity_id, prompt_id, prompt_version)
+  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`;
+
+function costInsertParams(entry: CostEntry): unknown[] {
+  return [
+    newId('cost'),
+    entry.provider,
+    entry.resourceType,
+    entry.quantity,
+    entry.estimatedCost,
+    JSON.stringify(entry.metadata ?? {}),
+    entry.phase ?? null,
+    entry.opportunityId ?? null,
+    entry.promptId ?? null,
+    entry.promptVersion ?? null,
+  ];
 }
 
 export async function recordCosts(entries: CostEntry[]): Promise<void> {
@@ -49,11 +67,7 @@ export async function recordCosts(entries: CostEntry[]): Promise<void> {
   const db = await getDb();
   await db.transaction(async (tx) => {
     for (const e of entries) {
-      await tx.query(
-        `INSERT INTO cost_ledger (id, provider, resource_type, quantity, estimated_cost, metadata_json)
-         VALUES ($1,$2,$3,$4,$5,$6)`,
-        [newId('cost'), e.provider, e.resourceType, e.quantity, e.estimatedCost, JSON.stringify(e.metadata ?? {})],
-      );
+      await tx.query(COST_INSERT_SQL, costInsertParams(e));
     }
   });
 }
