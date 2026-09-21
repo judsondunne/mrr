@@ -57,7 +57,7 @@ process.env.SENDING_WINDOW_END_HOUR = '24';
 process.env.SENDING_WEEKDAYS_ONLY = 'false';
 
 const { getConfig, resetConfigCache } = await import('../lib/config');
-const { getDb, closeDb, toNumber } = await import('../lib/db');
+const { getDb, closeDb } = await import('../lib/db');
 const { runMigrations } = await import('../lib/migrate');
 const { newId } = await import('../lib/hash');
 const { setLlmProvider } = await import('../lib/llm/index');
