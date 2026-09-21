@@ -90,7 +90,8 @@ Only for these, and nothing else:
 
 | Reason | Meaning |
 |---|---|
-| `READY_TO_BUILD` | The one you want. Multiple real companies committed at the stated price. |
+| `READY_TO_BUILD` | Multiple real companies committed at the stated price (`VALIDATED_COMMITMENT`). |
+| `VALIDATED_REVENUE_INTENT` | Strictly stronger: price-accepted reservations plus deposits, saved payment methods, or immediate install requests. |
 | `COST_LIMIT` | A budget is spent; the affected jobs halted rather than overspend. |
 | `CREDENTIAL_FAILURE` | A key stopped working. |
 | `DOMAIN_FAILURE` | Sending domain/deliverability problem. |
@@ -102,6 +103,87 @@ There is deliberately **no** code path that emails you "found a promising idea",
 That all lives in logs and the dashboard.
 
 ---
+
+## It runs itself
+
+After one-time credential/domain setup there is no command to run and no
+dashboard to check. The loop is:
+
+```
+DEPLOY → SELF CHECK → AUTO START → CONTINUOUS DISCOVERY → MARKET RESEARCH
+  → AUTONOMOUS PROSPECTING → MARKET TESTS → REPLIES/FOLLOWUPS
+  → LEARN FROM RESULTS → ADAPT NEXT STRATEGY
+  → FAIL: silently archive        → WIN: validate hard → 🚨 OWNER NOTIFIED
+```
+
+A **supervisor** runs every 15 minutes and decides what happens next: which
+category to research, which prospects to find, which campaign to send, which
+reply to answer, when to follow up, when to kill an experiment, and what to
+try next. You do not trigger discovery, choose queries, pick prospects, write
+campaigns, monitor them, read replies, or decide when something failed.
+
+`AUTO_START=true` means the system starts itself. On boot it self-checks; if
+configuration is complete it enters `RUNNING`, and if not it parks in
+`BLOCKED_CONFIGURATION` and sends **one** message naming exactly what is
+missing. When you fix that, it promotes itself to `RUNNING` — there is no
+second command to run.
+
+### The two planes
+
+This is the most important design decision in the system.
+
+| | Who may change it | Examples |
+|---|---|---|
+| **Control plane** | you, via code and env | gate thresholds · the unique-company rule · what counts as a strong commitment · cost ceilings · daily email cap · allowed countries · max follow-ups · suppression and opt-out · bounce/complaint pause · auth and secrets |
+| **Strategy plane** | the system, autonomously | which categories and ecosystems to research · search queries · ICPs · qualification heuristics · positioning · price hypotheses · landing and email copy · contact role · send times · follow-up wording · explore-vs-exploit |
+
+The boundary is mechanical, not a convention:
+
+- Every strategy write passes through `src/autonomy/guard.ts`, which refuses
+  any object naming a control-plane field — including nested, `snake_case`,
+  `camelCase` and `kebab-case` spellings.
+- `tests/unit/architecture.test.ts` scans the real source tree and fails the
+  build if anything under `src/autonomy/` mints a gate token, writes
+  `opportunities.state`, or writes `commitments` / `suppression_list` /
+  `cost_ledger`.
+- The same test fails the build if any module under `src/autonomy/` or
+  `src/pipeline/` writes a file or spawns a process. **The running agent can
+  change strategy rows; it cannot change its own source code.**
+
+So "adaptive" cannot quietly become "unconstrained". The system can decide to
+try a different niche at a different price with different wording. It cannot
+decide to email more people, relax the gate, skip the suppression list, or
+raise its own budget.
+
+### How it learns
+
+Learning comes from measured outcomes, never from the model's own opinion of
+its work. Each experiment writes its full input strategy and its measured
+results to `strategy_outcomes`, and Beta-Bernoulli posteriors per strategy arm
+are updated by Thompson sampling. Reward is **downstream only**, weighted:
+
+```
+strong commitment > price acceptance > pilot signup > strong reply > qualified reply
+```
+
+**Opens and clicks are not in the reward function at all** — there is a test
+that greps the source to keep it that way. Allocation shifts toward arms that
+actually produce commitments while `EXPLORATION_RATIO` (default 25%) stays
+reserved for untried hypotheses, so the system cannot get trapped in one niche.
+
+An arm below `MIN_SAMPLE_SIZE` is never reported as a winner — "2 replies out
+of 9" can't steer future strategy.
+
+### What it remembers
+
+**Failures.** Every dead experiment writes a post-mortem you never receive.
+Before testing a new hypothesis the system checks structural similarity against
+past failures, so it does not rediscover the same dead idea every week. A
+*material* change defeats the match — a different ICP, a price differing by
+50%+, a different wedge, a different channel.
+
+**Successes.** Winning characteristics bias discovery toward adjacent patterns,
+while exploration continues.
 
 ## Quick start (no credentials needed)
 
@@ -201,6 +283,7 @@ secret, https base URL, and both switches. Shadow mode cannot send even by mista
 | `npm run autonomy:enable` | Go live — refuses while any safety check fails |
 | `npm run autonomy:disable` | Back to shadow mode |
 | `npm run verify` | typecheck + lint + test + build |
+| `npm run simulate` | accelerated multi-week autonomy simulation + report |
 
 ---
 
