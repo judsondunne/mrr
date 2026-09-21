@@ -67,6 +67,12 @@ export interface SupervisorReport {
 const DEFAULT_MAX_WORK_ITEMS = 5;
 
 /** How many candidates each decision step will look at in one tick. */
+/**
+ * The stage at which staged research hands off to the full verification job.
+ * Below this an opportunity is still being filtered cheaply.
+ */
+const DEEP_RESEARCH_HANDOFF_STAGE = 3;
+
 const SCAN_LIMIT = 25;
 
 /**
@@ -158,6 +164,14 @@ export function idempotencyKeyFor(kind: WorkKind, scope: string, bucket: string)
 // --- tick bookkeeping -------------------------------------------------------------
 
 interface Tick {
+  /**
+   * The tick's clock. Injectable so an accelerated simulation can advance
+   * time: idempotency keys are hour/day bucketed, so without this every
+   * simulated tick lands in one real hour and the supervisor correctly
+   * refuses to re-enqueue identical work — which looks like a stalled system
+   * but is the deduplication doing its job.
+   */
+  now: Date;
   decisions: SupervisorDecision[];
   skipped: Map<string, number>;
   enqueued: number;
@@ -217,7 +231,11 @@ async function propose(tick: Tick, p: Proposal): Promise<boolean> {
     return false;
   }
 
-  const key = idempotencyKeyFor(p.kind, p.scope, p.bucket === 'day' ? dayBucket() : hourBucket());
+  const key = idempotencyKeyFor(
+    p.kind,
+    p.scope,
+    p.bucket === 'day' ? dayBucket(tick.now) : hourBucket(tick.now),
+  );
   const decision: SupervisorDecision = {
     kind: p.kind,
     priority: p.priority ?? priorityFor(p.kind),
@@ -250,11 +268,16 @@ async function propose(tick: Tick, p: Proposal): Promise<boolean> {
  * then drain some work within the tick so a healthy system needs no other
  * trigger. Safe to run concurrently — everything it does is idempotent.
  */
-export async function runSupervisor(opts?: { maxWorkItems?: number }): Promise<SupervisorReport> {
+export async function runSupervisor(opts?: {
+  maxWorkItems?: number;
+  /** Override the tick clock. Only the simulation sets this. */
+  now?: Date;
+}): Promise<SupervisorReport> {
   const cfg = getConfig();
   const maxWorkItems = Math.max(0, opts?.maxWorkItems ?? DEFAULT_MAX_WORK_ITEMS);
 
   const tick: Tick = {
+    now: opts?.now ?? new Date(),
     decisions: [],
     skipped: new Map(),
     enqueued: 0,
@@ -546,7 +569,7 @@ async function maintainDeliverability(tick: Tick, runtimeState: string): Promise
     priority: PRIORITY.MAINTAIN_DELIVERABILITY,
     reason: verdict.reason ?? (verdict.healthy ? 'sending reputation healthy' : 'sending reputation degraded'),
     opportunityId: null,
-    idempotencyKey: `DELIVERABILITY_MAINTENANCE:global:${hourBucket()}`,
+    idempotencyKey: `DELIVERABILITY_MAINTENANCE:global:${hourBucket(tick.now)}`,
   });
 
   if (verdict.shouldPause) {
@@ -691,6 +714,10 @@ async function decideDeepResearch(tick: Tick): Promise<void> {
   const candidates = await db.query<{ id: string }>(
     `SELECT id FROM opportunities
       WHERE state IN ('DISCOVERED','CATEGORY_VERIFYING','CATEGORY_VERIFIED')
+        -- research_stage -1 means staged research already eliminated it.
+        -- Without this an elimination that fails to transition would be
+        -- re-picked forever and starve everything behind it.
+        AND research_stage >= 0
       ORDER BY rank_score DESC, created_at ASC
       LIMIT $1`,
     [SCAN_LIMIT],
@@ -920,9 +947,54 @@ async function executeWork(item: WorkItem): Promise<void> {
       return runJobOrThrow('discover_opportunities');
 
     case 'RESEARCH_STAGE': {
+      // Run the STAGED path, not the old whole-job path.
+      //
+      // This was originally wired straight to verify_categories, which read
+      // literally as "map each WorkKind to the existing job" but defeated the
+      // point: staged research is the main token-cost reduction, and it is
+      // also what advances `research_stage`. Without it, an opportunity never
+      // left the deep-research concurrency count, so after three candidates
+      // the ceiling pinned `slots` at zero and research stopped for good.
+      if (item.opportunityId) {
+        const { advanceResearchStage } = await import('./discovery/index');
+        const outcome = await advanceResearchStage(item.opportunityId);
+
+        if (!outcome.survived) {
+          // Staged research parks an eliminated candidate at research_stage
+          // -1, but deliberately does not touch `opportunities.state` — this
+          // layer is barred from writing it. Without this handoff the idea
+          // was off the research path yet still sat in DISCOVERED forever, so
+          // it never showed up as killed in the funnel. Transition it through
+          // the sanctioned API, which validates the edge and audits it.
+          const { transitionOpportunity } = await import('../lib/audit');
+          // Two steps, because CATEGORY_REJECTED is only reachable from
+          // CATEGORY_VERIFYING — and that is the correct reading: staged
+          // research IS category verification in progress. Going straight
+          // from DISCOVERED threw IllegalTransitionError, which left every
+          // eliminated candidate sitting in DISCOVERED, still inside the
+          // research candidate pool, re-consuming a slot on every tick and
+          // starving the live candidates. A livelock, not a slow system.
+          await transitionOpportunity({
+            opportunityId: item.opportunityId,
+            to: 'CATEGORY_VERIFYING',
+            actor: 'supervisor:research_stage',
+            reason: 'staged research reached a verdict',
+          });
+          await transitionOpportunity({
+            opportunityId: item.opportunityId,
+            to: 'CATEGORY_REJECTED',
+            actor: 'supervisor:research_stage',
+            reason: `eliminated during staged research: ${outcome.reason}`,
+            set: { rejection_reason: 'ONLY_WEAK_EVIDENCE' },
+          });
+          return;
+        }
+        // Survived, but not yet a finalist: nothing more to spend on it now.
+        if (outcome.toStage < DEEP_RESEARCH_HANDOFF_STAGE) return;
+      }
+      // A survivor that has earned the expensive stage goes through the real
+      // verification/wedge jobs, which own the state transitions.
       const job = await researchJobFor(item.opportunityId);
-      // The opportunity moved on since this was queued: nothing to do, and
-      // failing it would only dead-letter work that is already done.
       if (!job) return;
       return runJobOrThrow(job);
     }

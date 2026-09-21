@@ -318,6 +318,13 @@ async function main(): Promise<void> {
   let outagesInjected = 0;
   let recoveries = 0;
 
+  // The virtual clock. Without it every tick lands in the same real hour and
+  // the supervisor correctly deduplicates all of them into one unit of work —
+  // the deduplication working, not the pipeline stalling.
+  const simStart = new Date(Date.now() - DAYS * 24 * 3600_000);
+  const clockFor = (day: number, tick: number): Date =>
+    new Date(simStart.getTime() + ((day - 1) * 24 + tick * Math.floor(24 / TICKS_PER_DAY)) * 3600_000);
+
   for (let day = 1; day <= DAYS; day++) {
     state.day = day;
     const todays = chaos.get(day) ?? [];
@@ -344,14 +351,15 @@ async function main(): Promise<void> {
     }
 
     for (let tick = 0; tick < TICKS_PER_DAY; tick++) {
+      const now = clockFor(day, tick);
       try {
-        await runSupervisor({ maxWorkItems: 12 });
+        await runSupervisor({ maxWorkItems: 12, now });
       } catch (err) {
         timeline.push({ day, tick, error: String(err).slice(0, 160) });
       }
-      // A duplicated cron invocation must be harmless.
+      // A duplicated cron invocation at the SAME instant must be harmless.
       if (todays.includes('DUPLICATE_CRON') && tick === 0) {
-        await runSupervisor({ maxWorkItems: 12 }).catch(() => undefined);
+        await runSupervisor({ maxWorkItems: 12, now }).catch(() => undefined);
       }
     }
 
