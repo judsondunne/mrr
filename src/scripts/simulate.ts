@@ -23,7 +23,7 @@
  *   - injected prompt injections never change behaviour
  *   - every injected outage recovers without owner involvement
  *
- * Usage: npm run simulate [-- --days 28 --seed 42 --json report.json]
+ * Usage: npm run simulate [-- --days 60 --seed 42 --json report.json]
  */
 import { mkdir, writeFile } from 'node:fs/promises';
 import type { SimIdea } from './sim-world';
@@ -55,6 +55,11 @@ process.env.BRAVE_SEARCH_API_KEY = 'sim';
 process.env.SENDING_WINDOW_START_HOUR = '0';
 process.env.SENDING_WINDOW_END_HOUR = '24';
 process.env.SENDING_WEEKDAYS_ONLY = 'false';
+// Politeness exists to avoid hammering real servers; the simulated web is
+// in-process, so the per-origin delay is pure wall-clock. The robots parser and
+// every other fetch rule still run — only the courtesy pause is removed.
+process.env.FETCH_MIN_DELAY_MS = '0';
+process.env.FETCH_TIMEOUT_MS = '2000';
 
 const { getConfig, resetConfigCache } = await import('../lib/config');
 const { getDb, closeDb } = await import('../lib/db');
@@ -68,7 +73,9 @@ const { getBudgetReport } = await import('../autonomy/budget');
 const { getRuntimeState } = await import('../autonomy/runtime');
 const { buildWorld, chaosSchedule, INJECTION_PAYLOADS } = await import('./sim-world');
 const { makeSimState, SimLlmProvider, SimSearchProvider, SimEmailProvider } = await import('./sim-providers');
-const { signWebhookPayload, handleInboundWebhook } = await import('../pipeline/outreach/webhooks');
+const { buildSimWeb, makeSimHttpTransport } = await import('./sim-web');
+const { setHttpTransport } = await import('../lib/fetch');
+const { signWebhookPayload, handleInboundWebhook, handleDeliveryWebhook } = await import('../pipeline/outreach/webhooks');
 
 resetConfigCache();
 
@@ -78,7 +85,12 @@ function arg(name: string, fallback: string): string {
   const i = process.argv.indexOf(`--${name}`);
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1]! : fallback;
 }
-const DAYS = Number(arg('days', '28'));
+// One full experiment cycle takes longer than a month of simulated time: the
+// domain warm-up schedule, the per-campaign ramp and the follow-up delays all
+// have to elapse before a campaign can complete and free a validation slot. At
+// 28 days the run cannot reach its own campaign/validation assertions at all,
+// so the default is a window in which the funnel can actually finish.
+const DAYS = Number(arg('days', '60'));
 const SEED = Number(arg('seed', '42'));
 const JSON_OUT = arg('json', '');
 const TICKS_PER_DAY = Number(arg('ticks', '4'));
@@ -243,6 +255,75 @@ async function seedWorld(ideas: SimIdea[]): Promise<void> {
 }
 
 /**
+ * Posts provider delivery events for everything that was sent, through the REAL
+ * signed delivery webhook.
+ *
+ * Nothing set `delivered_at` before this existed, which silently severed the
+ * whole post-send funnel: the campaign ramp never earned its next step, no
+ * reply could be generated, no commitment could be recorded, and the gate could
+ * never see a delivered count. `bounceRate`/`complain` drive the deliverability
+ * chaos cases through the same production path rather than by writing columns.
+ */
+async function deliverSentMessages(opts: {
+  bounceRate: number;
+  complaintRate: number;
+  rng: () => number;
+}): Promise<{ delivered: number; bounced: number; complained: number }> {
+  const db = await getDb();
+  const cfg = getConfig();
+  const rows = await db.query<{ id: string; provider_message_id: string | null; contact_email: string }>(
+    `SELECT m.id, m.provider_message_id, p.contact_email
+       FROM messages m
+       JOIN prospects p ON p.id = m.prospect_id
+      WHERE m.direction = 'OUTBOUND'
+        AND m.status = 'SENT'
+        AND m.provider_message_id IS NOT NULL
+        AND m.delivered_at IS NULL
+        AND m.bounced_at IS NULL
+      LIMIT 400`,
+  );
+
+  const out = { delivered: 0, bounced: 0, complained: 0 };
+  for (const row of rows.rows) {
+    const roll = opts.rng();
+    const type =
+      roll < opts.bounceRate
+        ? 'email.bounced'
+        : roll < opts.bounceRate + opts.complaintRate
+          ? 'email.complained'
+          : 'email.delivered';
+
+    const payload = JSON.stringify({
+      type,
+      data: {
+        email_id: row.provider_message_id,
+        to: [row.contact_email],
+        from: cfg.senderEmail,
+        ...(type === 'email.bounced'
+          ? { bounce: { type: 'Permanent', subType: 'General', message: 'mailbox does not exist' } }
+          : {}),
+      },
+    });
+    const id = `evt-delivery-${row.id}`;
+    const ts = String(Math.floor(Date.now() / 1000));
+    const sig = signWebhookPayload(cfg.resendWebhookSecret, id, ts, payload);
+    try {
+      await handleDeliveryWebhook(payload, {
+        'svix-id': id,
+        'svix-timestamp': ts,
+        'svix-signature': sig,
+      });
+      if (type === 'email.delivered') out.delivered += 1;
+      else if (type === 'email.bounced') out.bounced += 1;
+      else out.complained += 1;
+    } catch {
+      // A rejected provider event must never stop the run.
+    }
+  }
+  return out;
+}
+
+/**
  * Generates inbound replies for delivered messages at each idea's TRUE rates,
  * and delivers them through the real signed inbound webhook.
  */
@@ -255,9 +336,9 @@ async function generateReplies(
   const cfg = getConfig();
   const rows = await db.query<{
     id: string; campaign_id: string; prospect_id: string; contact_email: string;
-    category: string; thread_id: string | null;
+    category: string; thread_id: string | null; domain: string;
   }>(
-    `SELECT m.id, m.campaign_id, m.prospect_id, p.contact_email, o.category, m.thread_id
+    `SELECT m.id, m.campaign_id, m.prospect_id, p.contact_email, p.domain, o.category, m.thread_id
        FROM messages m
        JOIN prospects p ON p.id = m.prospect_id
        JOIN campaigns c ON c.id = m.campaign_id
@@ -278,11 +359,16 @@ async function generateReplies(
 
     const strong = rng() < idea.strongShare;
     const accepted = strong && rng() < idea.priceAcceptShare;
+    // Wording matters: the production commitment rules require BOTH a
+    // classification flag and a literal text pattern, so a reply that merely
+    // reads positive records nothing. These are the phrasings the reply
+    // classifier is calibrated against (tests/fixtures/calibration/*), so the
+    // simulated customer speaks the way a real one does.
     let body = accepted
-      ? `Yes, $${idea.priceMonthly}/month works for us. Send the install when it is ready.`
+      ? `Yes - $${idea.priceMonthly}/month is fine. Sign us up for the pilot, we'd like one of the first installs. Our store url is https://${row.domain}.`
       : strong
-        ? 'This is exactly our problem. How do we get one of the first installs?'
-        : 'Sounds interesting, keep me posted.';
+        ? "This is exactly the problem we have every week. We'd like one of the first installs if you are taking names."
+        : 'Sounds interesting, cool idea. Keep me posted on how it goes.';
     if (injectPayload) body = `${body}\n\n${injectPayload}`;
 
     const payload = JSON.stringify({
@@ -313,6 +399,42 @@ async function generateReplies(
   return { delivered: rows.rows.length, replied };
 }
 
+/**
+ * Ages the database by one day.
+ *
+ * The supervisor takes an injected clock, but every time-based ELIGIBILITY rule
+ * reads the database's own `now()`: the daily send quota, the domain warm-up
+ * ceiling, follow-up delays, company cooldowns and the deliverability window.
+ * Without ageing, 28 simulated days are one real day — the warm-up never leaves
+ * its first step, so the run could never deliver the volume the gate requires
+ * and the funnel looked broken when it was merely frozen.
+ *
+ * Shifting the stored timestamps backwards is the honest way to do this against
+ * a real clock: the production queries are untouched and still compare against
+ * `now()`. Cost rows are deliberately NOT shifted, so monthly budget accounting
+ * stays inside one period and the budget assertion keeps its meaning.
+ */
+const AGEING_COLUMNS: ReadonlyArray<readonly [string, readonly string[]]> = [
+  ['messages', ['created_at', 'sent_at', 'delivered_at', 'bounced_at', 'complained_at', 'received_at', 'opened_at', 'clicked_at']],
+  ['prospects', ['created_at', 'updated_at', 'suppressed_at']],
+  ['campaigns', ['created_at', 'updated_at', 'started_at', 'ended_at']],
+  ['opportunities', ['created_at', 'updated_at', 'feasibility_checked_at']],
+  ['commitments', ['created_at']],
+  ['suppression_list', ['created_at']],
+  ['sending_reputation', ['first_send_at', 'updated_at']],
+  ['company_registry', ['created_at', 'updated_at', 'last_contacted_at', 'cooldown_until']],
+];
+
+async function ageDatabaseByOneDay(): Promise<void> {
+  const db = await getDb();
+  for (const [table, columns] of AGEING_COLUMNS) {
+    const sets = columns
+      .map((c) => `${c} = ${c} - INTERVAL '1 day'`)
+      .join(', ');
+    await db.query(`UPDATE ${table} SET ${sets}`);
+  }
+}
+
 // --- main -------------------------------------------------------------------
 
 async function main(): Promise<void> {
@@ -323,8 +445,20 @@ async function main(): Promise<void> {
   const state = makeSimState(ideas, SEED + 1);
   const llm = new SimLlmProvider(state);
   const email = new SimEmailProvider(state);
+
+  // The simulated public web. Prospecting reads real merchant pages through
+  // the real politeFetch, so ICP fit and contact discovery are decided by
+  // production code rather than assumed.
+  const web = buildSimWeb(ideas);
+  setHttpTransport(
+    makeSimHttpTransport(web, ideas, {
+      pendingInjection: () => state.pendingInjection,
+      malformed: () => state.malformedHtml,
+    }),
+  );
+
   setLlmProvider(llm);
-  setSearchProvider(new SimSearchProvider(state));
+  setSearchProvider(new SimSearchProvider(state, web.byIdea));
   setEmailProvider(email);
 
   const cfg = getConfig();
@@ -363,6 +497,7 @@ async function main(): Promise<void> {
         case 'PROMPT_INJECTION_PAGE':
           state.pendingInjection = INJECTION_PAYLOADS[day % INJECTION_PAYLOADS.length]!;
           break;
+        case 'MALFORMED_HTML': state.malformedHtml = true; break;
         case 'STALE_LOCK': {
           const db = await getDb();
           await db.query(
@@ -389,6 +524,17 @@ async function main(): Promise<void> {
       }
     }
 
+    // Provider delivery events, through the real signed webhook. The bounce
+    // storm and the complaint event are injected here because that is how they
+    // arrive in production — as provider events, not as column writes.
+    const delivery = await deliverSentMessages({
+      bounceRate: todays.includes('BOUNCE_STORM') ? 0.4 : 0.01,
+      complaintRate: todays.includes('SPAM_COMPLAINT') ? 0.2 : 0,
+      rng: state.rng,
+    });
+    state.counters.bounces += delivery.bounced;
+    state.counters.complaints += delivery.complained;
+
     const injected = state.pendingInjection;
     const reply = await generateReplies(ideas, state.rng, injected);
     if (injected) { injectionsDelivered += 1; state.pendingInjection = null; }
@@ -398,6 +544,9 @@ async function main(): Promise<void> {
       for (let i = 0; i < 4; i++) await generateReplies(ideas, () => 1, null).catch(() => undefined);
     }
 
+    // Malformed pages last one day; the extractor must survive them.
+    if (state.malformedHtml && !todays.includes('MALFORMED_HTML')) state.malformedHtml = false;
+
     // Clear outages the day after they are injected, and confirm recovery.
     if (state.outage.search || state.outage.llm || state.outage.email) {
       if ((chaos.get(day) ?? []).length === 0) {
@@ -405,6 +554,8 @@ async function main(): Promise<void> {
         recoveries += 1;
       }
     }
+
+    await ageDatabaseByOneDay();
 
     const db = await getDb();
     const states = await db.query<{ state: string; n: string }>(
@@ -601,6 +752,63 @@ async function main(): Promise<void> {
   lines.push('');
   lines.push('  FINAL OPPORTUNITY STATES');
   for (const [s, n] of [...stateMap.entries()].sort()) lines.push(`    ${s.padEnd(28)} ${n}`);
+  lines.push('');
+
+  // Where the outreach funnel actually stopped. Without this a stalled run is
+  // indistinguishable from a run that correctly declined to send.
+  const ps = await db.query<{ status: string; n: string }>(
+    'SELECT status, COUNT(*) AS n FROM prospects GROUP BY status ORDER BY status',
+  );
+  lines.push('  PROSPECT STATUS');
+  for (const r of ps.rows) lines.push(`    ${r.status.padEnd(28)} ${r.n}`);
+  const reach = await db.query<{ n: string }>(
+    `SELECT COUNT(*) AS n FROM prospects
+      WHERE status = 'QUALIFIED' AND suppressed_at IS NULL
+        AND contact_email IS NOT NULL AND email_is_public = true`,
+  );
+  lines.push(`    ${'(draftable)'.padEnd(28)} ${reach.rows[0]?.n ?? 0}`);
+  const withCountry = await db.query<{ n: string }>(
+    `SELECT COUNT(*) AS n FROM prospects WHERE status = 'QUALIFIED' AND country = 'US'`,
+  );
+  lines.push(`    ${'(qualified, US)'.padEnd(28)} ${withCountry.rows[0]?.n ?? 0}`);
+  lines.push('');
+
+  const ms = await db.query<{ direction: string; status: string; n: string }>(
+    'SELECT direction, status, COUNT(*) AS n FROM messages GROUP BY direction, status ORDER BY direction, status',
+  );
+  lines.push('  MESSAGES');
+  if (ms.rows.length === 0) lines.push('    (none)');
+  for (const r of ms.rows) lines.push(`    ${`${r.direction}/${r.status}`.padEnd(28)} ${r.n}`);
+  const errs = await db.query<{ error: string | null; n: string }>(
+    `SELECT LEFT(COALESCE(error, '(none)'), 60) AS error, COUNT(*) AS n
+       FROM messages WHERE status = 'FAILED' GROUP BY 1 ORDER BY 2 DESC LIMIT 5`,
+  );
+  if (errs.rows.length > 0) {
+    lines.push('  SEND FAILURES');
+    for (const r of errs.rows) lines.push(`    ${String(r.n).padStart(4)}  ${r.error}`);
+  }
+  const ic = await db.query<{ classification: string | null; n: string; campaigns: string }>(
+    `SELECT classification, COUNT(*) AS n, COUNT(campaign_id) AS campaigns
+       FROM messages WHERE direction = 'INBOUND'
+      GROUP BY classification ORDER BY classification`,
+  );
+  lines.push('  REPLY CLASSIFICATIONS');
+  if (ic.rows.length === 0) lines.push('    (none)');
+  for (const r of ic.rows) {
+    lines.push(`    ${(r.classification ?? '(null)').padEnd(28)} ${r.n} (${r.campaigns} linked to a campaign)`);
+  }
+  const cs = await db.query<{ state: string; n: string }>(
+    'SELECT state, COUNT(*) AS n FROM campaigns GROUP BY state ORDER BY state',
+  );
+  lines.push('  CAMPAIGNS');
+  if (cs.rows.length === 0) lines.push('    (none)');
+  for (const r of cs.rows) lines.push(`    ${r.state.padEnd(28)} ${r.n}`);
+  const cm = await db.query<{ type: string; n: string }>(
+    'SELECT type, COUNT(*) AS n FROM commitments GROUP BY type ORDER BY type',
+  );
+  lines.push('  COMMITMENTS');
+  if (cm.rows.length === 0) lines.push('    (none)');
+  for (const r of cm.rows) lines.push(`    ${r.type.padEnd(28)} ${r.n}`);
   lines.push('');
   lines.push('  ASSERTIONS');
   for (const c of checks) {

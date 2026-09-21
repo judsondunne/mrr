@@ -19,6 +19,7 @@ import {
 } from '../../src/pipeline/outreach/send';
 import { scheduleFollowups, MAX_SEQUENCE_FOLLOWUPS } from '../../src/pipeline/outreach/followups';
 import { sendingWindowStatus } from '../../src/pipeline/outreach/window';
+import { campaignVolumeCeiling } from '../../src/autonomy/deliverability';
 import {
   validateCompliance,
   sanitizeObservation,
@@ -382,7 +383,15 @@ describe('sendDueMessages', () => {
     const cfg = getConfig();
     expect(cumulativeTargetForState('BATCH_1', cfg)).toBe(25);
     expect(cumulativeTargetForState('BATCH_2', cfg)).toBe(75);
-    expect(cumulativeTargetForState('SCALING', cfg)).toBe(150);
+
+    // SCALING aims at the REACHABLE ceiling, not MAX_EMAILS_PER_CAMPAIGN.
+    // The ramp's last step is a hard stop (maybeAdvanceRamp reports
+    // RAMP_AT_MAX), so a target above it can never be met: SCALING would never
+    // roll to COMPLETE, the exhaustion kill would never fire, and the campaign
+    // would hold a MAX_ACTIVE_VALIDATIONS slot forever.
+    expect(campaignVolumeCeiling(cfg)).toBe(75);
+    expect(campaignVolumeCeiling(cfg)).toBeLessThanOrEqual(cfg.maxEmailsPerCampaign);
+    expect(cumulativeTargetForState('SCALING', cfg)).toBe(campaignVolumeCeiling(cfg));
   });
 });
 

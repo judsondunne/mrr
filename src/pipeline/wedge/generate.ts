@@ -359,9 +359,20 @@ export function containsCustomerNoun(text: string): boolean {
   return tokens.some((t) => CUSTOMER_NOUNS.some((noun) => t === noun || t.startsWith(noun)));
 }
 
+/**
+ * Banned phrases match on WORD boundaries, never as bare substrings.
+ *
+ * A raw `includes` check rejected legitimate copy for containing a banned word
+ * inside a longer one: "without a full replatform" was flagged for `platform`.
+ * A wedge is not generic marketing because one of its words happens to end in
+ * a banned string.
+ */
 export function findBannedPhrases(text: string): string[] {
   const haystack = lower(text);
-  return BANNED_GENERIC_PHRASES.filter((phrase) => haystack.includes(phrase));
+  return BANNED_GENERIC_PHRASES.filter((phrase) => {
+    const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(?<![a-z0-9])${escaped}(?![a-z0-9])`).test(haystack);
+  });
 }
 
 export function hasNarrowingQualifier(text: string): boolean {
@@ -373,9 +384,37 @@ export function hasNarrowingQualifier(text: string): boolean {
   );
 }
 
+/**
+ * Candidate base forms for one token, so inflections match the verb list
+ * without the list having to enumerate every conjugation.
+ *
+ * The list is written in base + third-person form; a recurring job is very
+ * often described as a gerund ("enforcing case-pack minimums every day"),
+ * which the exact-match check used to reject as vague.
+ */
+function verbStems(token: string): string[] {
+  const out = [token];
+  const push = (s: string): void => {
+    if (s.length >= 2) out.push(s);
+  };
+  for (const suffix of ['ing', 'ed', 'es', 's']) {
+    if (!token.endsWith(suffix) || token.length <= suffix.length + 1) continue;
+    const trimmed = token.slice(0, -suffix.length);
+    push(trimmed);
+    // "enforcing" -> "enforce"; "quoted" -> "quote"
+    push(`${trimmed}e`);
+    // "tagging" -> "tag"; "shipped" -> "ship"
+    const last = trimmed.at(-1);
+    if (last && last === trimmed.at(-2) && !'aeiou'.includes(last)) push(trimmed.slice(0, -1));
+    // "applies" -> "apply"; "verifies" -> "verify"
+    if (trimmed.endsWith('i')) push(`${trimmed.slice(0, -1)}y`);
+  }
+  return out;
+}
+
 export function hasConcreteVerb(text: string): boolean {
-  const tokens = words(text);
-  return tokens.some((t) => CONCRETE_WORKFLOW_VERBS.includes(t));
+  const verbs = new Set(CONCRETE_WORKFLOW_VERBS);
+  return words(text).some((t) => verbStems(t).some((stem) => verbs.has(stem)));
 }
 
 export interface ValidateWedgeOptions {

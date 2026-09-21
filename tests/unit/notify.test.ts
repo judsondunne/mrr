@@ -14,6 +14,7 @@ import {
   insertProspect,
   insertDeliveredMessage,
   insertCommitment,
+  treatEmailAsDelivered,
 } from '../helpers';
 import type { Db } from '../../src/lib/db';
 import { newId } from '../../src/lib/hash';
@@ -343,6 +344,8 @@ describe('claim-language guard', () => {
 describe('notifyValidatedOpportunities', () => {
   it('sends exactly one email for a validated opportunity', async () => {
     const { db, email } = await freshDb(SCALED);
+    // The notifier will not consume a claim for a simulated send, by design.
+    treatEmailAsDelivered();
     const { opportunityId } = await seedValidated(db);
 
     const result = await notifyValidatedOpportunities();
@@ -364,6 +367,7 @@ describe('notifyValidatedOpportunities', () => {
 
   it('never sends a second time for the same opportunity', async () => {
     const { db, email } = await freshDb(SCALED);
+    treatEmailAsDelivered();
     await seedValidated(db);
 
     await notifyValidatedOpportunities();
@@ -407,6 +411,7 @@ describe('notifyValidatedOpportunities', () => {
 describe('notifyOwner — infrastructure alerts only', () => {
   it('sends one alert and dedupes every repeat of the same failure', async () => {
     const { db, email } = await freshDb(SCALED);
+    treatEmailAsDelivered();
 
     const first = await notifyOwner({
       kind: 'CREDENTIAL_FAILURE',

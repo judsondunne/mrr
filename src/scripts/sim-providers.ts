@@ -23,6 +23,8 @@ export interface SimState {
   outage: { search: boolean; llm: boolean; email: boolean };
   /** Injection payload to embed in the next fetched page / inbound email. */
   pendingInjection: string | null;
+  /** While true the simulated web serves truncated HTML. */
+  malformedHtml: boolean;
   counters: {
     searches: number;
     llmCalls: number;
@@ -41,6 +43,7 @@ export function makeSimState(ideas: SimIdea[], seed = 7): SimState {
     day: 0,
     outage: { search: false, llm: false, email: false },
     pendingInjection: null,
+    malformedHtml: false,
     counters: {
       searches: 0,
       llmCalls: 0,
@@ -53,9 +56,27 @@ export function makeSimState(ideas: SimIdea[], seed = 7): SimState {
   };
 }
 
+/**
+ * Markers that a query is hunting for BUSINESSES rather than competitors.
+ * These are the fragments `buildProspectQueries` composes from, so a query
+ * carrying one of them is a prospecting query and must return merchant sites.
+ */
+const PROSPECTING_MARKERS = [
+  'wholesale', 'minimum order', 'trade account', 'become a stockist', 'stockist',
+  'case pack', 'order minimums', 'net 30', 'price list', 'local delivery',
+  'in-store pickup', 'powered by shopify', 'our store',
+];
+
 export class SimSearchProvider implements SearchProvider {
   readonly name = 'brave';
-  constructor(private readonly state: SimState) {}
+  /** Merchant domains already returned, so paging through a segment advances. */
+  private readonly served = new Map<string, number>();
+
+  constructor(
+    private readonly state: SimState,
+    /** Merchant population by idea key. Absent in runs that skip prospecting. */
+    private readonly merchantsByIdea?: Map<string, Array<{ domain: string; companyName: string }>>,
+  ) {}
 
   async search(query: string, count: number): Promise<SearchResult[]> {
     this.state.counters.searches += 1;
@@ -63,16 +84,101 @@ export class SimSearchProvider implements SearchProvider {
       throw new ProviderError('brave', 'simulated search outage (HTTP 503)', true);
     }
     const q = query.toLowerCase();
-    const hits = this.state.ideas.filter(
-      (i) => q.includes(i.category.split('-')[0] ?? '~~') || q.includes(i.wedgeType.split('-')[0] ?? '~~'),
-    );
-    const pool = hits.length > 0 ? hits : this.state.ideas.slice(0, 3);
+    const idea = this.bestIdeaFor(q);
+
+    if (this.merchantsByIdea && PROSPECTING_MARKERS.some((m) => q.includes(m))) {
+      // Prefer a segment the query actually identifies (category, product name
+      // or wedge type); fall back to the best ICP-word match, because most
+      // generated queries carry only ICP words. Cross-assignment is possible
+      // here and shows up as COMPANY_COOLDOWN send skips: a company reached for
+      // one segment is blocked for another for COMPANY_COOLDOWN_DAYS, which is
+      // the production rule working, not a fault.
+      const target = this.confidentIdeaFor(q) ?? idea;
+      return target ? this.merchantResults(target.key, count) : [];
+    }
+
+    const pool = idea ? [idea] : this.state.ideas.slice(0, 3);
     return pool.slice(0, count).map((i) => ({
       title: i.name,
       url: `https://apps.example.com/${i.category}`,
       description: `${i.name} — ${i.paidCompetitorCount} paid competitors, ${i.competitorCount} total.`,
     }));
   }
+
+  /**
+   * Which idea a query is about, by token overlap against the idea's identity.
+   * Prospecting queries are built from the wedge's ICP words, so the ICP string
+   * carries the most signal; the category and product name disambiguate ties.
+   */
+  /**
+   * The segment a prospecting query identifies, or null when it is ambiguous.
+   *
+   * A category / product-name / wedge-type hit is decisive. Failing that, the
+   * ICP words may identify a segment, but only if ONE segment clearly leads:
+   * a tie means the query does not name a segment, and answering it with a
+   * guess cross-assigns merchants between campaigns.
+   */
+  private confidentIdeaFor(q: string): SimIdea | null {
+    for (const idea of this.state.ideas) {
+      if (q.includes(idea.category) || q.includes(idea.name.toLowerCase()) || q.includes(idea.wedgeType)) {
+        return idea;
+      }
+    }
+
+    const scored: Array<{ idea: SimIdea; score: number }> = [];
+    for (const idea of this.state.ideas) {
+      let score = 0;
+      for (const token of tokens(idea.icp)) {
+        if (token !== 'shopify' && token.length > 3 && q.includes(token)) score += 1;
+      }
+      if (score > 0) scored.push({ idea, score });
+    }
+    scored.sort((a, b) => b.score - a.score);
+    const best = scored[0];
+    const runnerUp = scored[1];
+    if (!best || best.score < 2) return null;
+    if (runnerUp && runnerUp.score === best.score) return null;
+    return best.idea;
+  }
+
+  private bestIdeaFor(q: string): SimIdea | null {
+    let best: SimIdea | null = null;
+    let bestScore = 0;
+    for (const idea of this.state.ideas) {
+      let score = 0;
+      if (q.includes(idea.category)) score += 6;
+      if (q.includes(idea.name.toLowerCase())) score += 6;
+      if (q.includes(idea.wedgeType)) score += 4;
+      for (const token of tokens(idea.icp)) {
+        // "shopify" is shared by every idea in this world and carries no signal.
+        if (token !== 'shopify' && token.length > 3 && q.includes(token)) score += 1;
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        best = idea;
+      }
+    }
+    return bestScore > 0 ? best : null;
+  }
+
+  /** Pages through the segment so repeated passes surface new businesses. */
+  private merchantResults(ideaKey: string, count: number): SearchResult[] {
+    const all = this.merchantsByIdea?.get(ideaKey) ?? [];
+    const offset = this.served.get(ideaKey) ?? 0;
+    const slice = all.slice(offset, offset + count);
+    // Wrap rather than going empty: a real search keeps returning the same
+    // businesses, and the pipeline's own de-duplication is what must cope.
+    this.served.set(ideaKey, slice.length < count ? 0 : offset + slice.length);
+    return slice.map((m) => ({
+      title: `Wholesale & Trade Accounts | ${m.companyName}`,
+      url: `https://${m.domain}/pages/wholesale`,
+      description: 'Wholesale and trade accounts. Minimum order applies; case-pack quantities only.',
+    }));
+  }
+}
+
+function tokens(text: string): string[] {
+  return text.toLowerCase().split(/[^a-z0-9-]+/).filter(Boolean);
 }
 
 export class SimEmailProvider implements EmailProvider {
@@ -125,8 +231,27 @@ export class SimLlmProvider implements LlmProvider {
     }
 
     const shaped = shapeFor(req, this.state);
-    const parsed = req.schema.safeParse(shaped);
-    const data = parsed.success ? parsed.data : (synthesize(req.schema) as T);
+    let data: T;
+    if (shaped === undefined) {
+      // No task-specific shape: schema synthesis keeps unshaped tasks parsing.
+      data = synthesize(req.schema) as T;
+    } else {
+      const parsed = req.schema.safeParse(shaped);
+      if (!parsed.success) {
+        // A shape that does not match its schema used to fall through to
+        // synthesis, which answers `false` to every boolean — so a broken
+        // fixture looked like a confident "no" from the model and silently
+        // failed the whole pipeline. Fixture drift must be loud.
+        throw new Error(
+          `sim fixture for task "${req.task}" does not match its schema: ` +
+            parsed.error.issues
+              .slice(0, 6)
+              .map((i) => `${i.path.join('.') || '(root)'} ${i.message}`)
+              .join('; '),
+        );
+      }
+      data = parsed.data;
+    }
 
     // Token counts are realistic enough that budget pressure is real, and the
     // reasoner is expensive enough that staging matters.
@@ -192,15 +317,27 @@ function shapeFor<T>(req: LlmRequest<T>, state: SimState): unknown {
   }
 
   if (req.task === 'prospect.icp_judgement') {
-    // Real businesses in a reachable segment qualify; junk segments do not.
-    const fits = idea ? idea.prospectYield >= 100 : false;
+    // Judge from the supplied page text, exactly as the real prompt demands —
+    // and quote it VERBATIM, because the production code verifies that the
+    // cited evidence actually appears on the page and discards the fit if not.
+    const page = req.user;
+    const vendor = /trusted by thousands of merchants|install our app|request a demo/i.test(page);
+    const sentence = firstSentenceMatching(page, [
+      'case-pack quantities of',
+      'all trade orders ship in fixed case quantities',
+      'wholesale pricing for approved stockists',
+      'supplies independent retail stockists',
+    ]);
+    const fits = !vendor && sentence !== null;
     return {
-      fits,
-      confidence: fits ? 0.85 : 0.15,
+      fitsIcp: fits,
       reason: fits
-        ? `public page states a ${idea?.wedgeType ?? 'workflow'} requirement`
-        : 'no public evidence of the workflow',
-      evidenceQuote: fits ? 'Minimum order is 12 units per style.' : '',
+        ? 'the page states a wholesale ordering requirement in its own words'
+        : vendor
+          ? 'this page sells to merchants rather than being one'
+          : 'no public evidence of the workflow on this page',
+      evidenceQuote: sentence ?? '',
+      confidence: fits ? 'HIGH' : 'LOW',
     };
   }
 
@@ -231,6 +368,16 @@ function shapeFor<T>(req: LlmRequest<T>, state: SimState): unknown {
     };
   }
 
+  if (req.task === 'outreach.personalize') {
+    // One lowercase clause completing "I noticed ___", restating only what the
+    // verified evidence says. Must survive sanitizeObservation: no URL, no
+    // address, no praise, no claim of familiarity, 8-180 chars.
+    const workflow = (idea?.wedgeType ?? 'wholesale ordering').replace(/[-_]+/g, ' ');
+    return {
+      observation: `your wholesale page states a ${workflow} requirement in case-pack quantities`,
+    };
+  }
+
   if (req.task === 'shopify_pricing_disambiguation') {
     const paid = idea ? idea.hasStrongPaymentEvidence : false;
     return {
@@ -242,21 +389,34 @@ function shapeFor<T>(req: LlmRequest<T>, state: SimState): unknown {
     };
   }
 
-  if (/classif|reply|inbound/i.test(req.task)) {
-    const strong = idea ? state.rng() < idea.strongShare : false;
-    const accepted = strong && idea ? state.rng() < idea.priceAcceptShare : false;
+  if (req.task === 'outreach.auto_reply') {
+    // The bounded auto-reply. It may only answer from the offer it was given,
+    // and must hand off to a human otherwise — so a simulated agent that
+    // always claims it can answer would hide the hand-off path.
+    const body = replyBodyFrom(req);
+    const asksPrice = /\b(how much|price|cost|pricing)\b/i.test(body);
     return {
-      classification: accepted ? 'PRICE_ACCEPTED' : strong ? 'INTERESTED_STRONG' : 'INTERESTED_WEAK',
-      intent: accepted ? 'accepts the stated price' : strong ? 'wants the pilot' : 'mildly curious',
-      requestedFeature: strong ? `${idea?.wedgeType ?? 'rule'} at the cart` : null,
-      competitorMentioned: null,
-      priceReaction: accepted ? 'ACCEPTED' : 'NOT_MENTIONED',
-      timing: null,
-      explicitlyWantsAccess: strong,
-      explicitlyAcceptedPrice: accepted,
-      requiresHuman: false,
-      intentScore: accepted ? 0.95 : strong ? 0.7 : 0.25,
+      canAnswerFromOffer: asksPrice,
+      answer: asksPrice
+        ? 'The price we are validating is the one in the previous note; nothing is built yet.'
+        : '',
+      clarifyingQuestion: '',
+      needsHuman: !asksPrice,
     };
+  }
+
+  if (req.task === 'outreach.classify_reply') {
+    // Read the REPLY, exactly as a real model would.
+    //
+    // This used to pick a verdict from a dice roll against the idea's demand
+    // rate, which decoupled the classification from the text the world had
+    // actually produced: a reply saying "$19/month is fine" could come back
+    // INTERESTED_WEAK. The production commitment rules require BOTH a flag here
+    // AND a literal pattern in the body, so nothing was ever recorded and the
+    // winner path was unreachable. Deriving from the text is what makes the
+    // two halves agree — and keeps the deterministic rules in charge.
+    const body = replyBodyFrom(req);
+    return classifyReplyText(body);
   }
   return undefined;
 }
@@ -295,4 +455,132 @@ function synthesize(schema: unknown, depth = 0): unknown {
     }
     default: return null;
   }
+}
+
+/**
+ * The first sentence of `text` containing one of `needles`, returned verbatim.
+ *
+ * Used so the simulated model's `evidenceQuote` is genuinely copied from the
+ * page it was shown — the production qualifier verifies exactly that and throws
+ * the judgement away otherwise.
+ */
+function firstSentenceMatching(text: string, needles: readonly string[]): string | null {
+  const flat = text.replace(/\s+/g, ' ');
+  for (const needle of needles) {
+    const at = flat.toLowerCase().indexOf(needle.toLowerCase());
+    if (at < 0) continue;
+    let start = flat.lastIndexOf('.', at) + 1;
+    if (start < 0) start = 0;
+    let end = flat.indexOf('.', at + needle.length);
+    if (end < 0) end = Math.min(flat.length, at + needle.length + 60);
+    const sentence = flat.slice(start, end + 1).trim();
+    if (sentence.length >= 10) return sentence.slice(0, 200);
+  }
+  return null;
+}
+
+/**
+ * The reply text out of a classification request.
+ *
+ * Inbound bodies travel in the `untrusted` channel (that is the whole point of
+ * the fencing), so read that first and fall back to the user turn.
+ */
+function replyBodyFrom(req: { user: string; untrusted?: unknown }): string {
+  const untrusted = req.untrusted;
+  if (typeof untrusted === 'string' && untrusted.trim() !== '') return untrusted;
+  if (untrusted !== null && typeof untrusted === 'object') {
+    const parts: string[] = [];
+    for (const value of Object.values(untrusted as Record<string, unknown>)) {
+      if (typeof value === 'string') parts.push(value);
+    }
+    if (parts.length > 0) return parts.join('\n');
+  }
+  return req.user;
+}
+
+/**
+ * A plausible, text-driven reply classification.
+ *
+ * Ordered most-decisive first: an opt-out is never also a commitment, and a
+ * stated requirement is not interest.
+ */
+function classifyReplyText(body: string): Record<string, unknown> {
+  const text = body.toLowerCase();
+  const base = {
+    intent: '',
+    requestedFeature: null as string | null,
+    competitorMentioned: null as string | null,
+    priceReaction: 'NOT_MENTIONED' as string,
+    timing: null as string | null,
+    explicitlyWantsAccess: false,
+    explicitlyAcceptedPrice: false,
+    requiresHuman: false,
+    intentScore: 0.1,
+  };
+
+  if (/\b(unsubscribe|remove me|take me off|stop emailing|do not (email|contact))\b/.test(text)) {
+    return { ...base, classification: 'UNSUBSCRIBE', intent: 'asked to be removed', intentScore: 0 };
+  }
+  if (/\b(no thanks|not interested|we'?re all set|no need|pass on this)\b/.test(text)) {
+    return { ...base, classification: 'NOT_INTERESTED', intent: 'declined', intentScore: 0 };
+  }
+  if (/\b(out of (the )?office|on (annual )?leave|on holiday|back on \w+day)\b/.test(text)) {
+    return { ...base, classification: 'OUT_OF_OFFICE', intent: 'auto-reply', intentScore: 0 };
+  }
+  if (/\b(wrong person|not my (area|department)|i no longer work)\b/.test(text)) {
+    return { ...base, classification: 'WRONG_PERSON', intent: 'wrong contact', intentScore: 0 };
+  }
+
+  const wantsAccess =
+    /\b(first installs?|sign (us|me) up|the pilot|early access|we'?ll install|send (me|us) the install|put (us|me) (on|in) the beta|would like to (try|test)|(we|i)'?(d| would) like (a|one of the) (pilot|first))\b/.test(
+      text,
+    );
+  const acceptedPrice =
+    /\$\s?\d+(\.\d{2})?\s*(\/|per\s)?\s*(mo|month|mo\.)?\s*(is|sounds|seems|works|would be)?\s*(fine|fair|ok|okay|reasonable|great|good|worth it|no problem|acceptable)\b/.test(
+      text,
+    ) || /\b((happy|willing|glad) to pay|we'?ll pay|that price (is|works|sounds) (fine|fair|ok|okay|good|reasonable))\b/.test(text);
+
+  if (/\b(we'?d need|would need it to|without that|only if it|as long as it (also )?(handles|supports))\b/.test(text)) {
+    const feature = /case[- ]pack/.test(text)
+      ? 'case-pack quantities, not just unit counts'
+      : 'a capability the reply names';
+    return {
+      ...base,
+      classification: 'FEATURE_REQUIREMENT',
+      intent: 'states a requirement before committing',
+      requestedFeature: feature,
+      explicitlyWantsAccess: false,
+      intentScore: 0.3,
+    };
+  }
+
+  if (acceptedPrice) {
+    return {
+      ...base,
+      classification: 'PRICE_ACCEPTED',
+      intent: 'accepts the stated price',
+      priceReaction: 'ACCEPTED',
+      explicitlyAcceptedPrice: true,
+      explicitlyWantsAccess: wantsAccess,
+      intentScore: 0.95,
+    };
+  }
+  if (wantsAccess) {
+    return {
+      ...base,
+      classification: 'INTERESTED_STRONG',
+      intent: 'asks for access without reacting to price',
+      explicitlyWantsAccess: true,
+      intentScore: 0.7,
+    };
+  }
+  if (/\?\s*$|\b(how (does|do|would)|what (about|happens)|can it)\b/.test(text)) {
+    return { ...base, classification: 'ASKING_QUESTION', intent: 'asks a question', intentScore: 0.3 };
+  }
+  return {
+    ...base,
+    classification: 'INTERESTED_WEAK',
+    intent: 'vague positivity with no ask',
+    intentScore: 0.25,
+  };
 }

@@ -9,7 +9,7 @@ import { runMigrations } from '../src/lib/migrate';
 import { resetConfigCache } from '../src/lib/config';
 import { setLlmProvider, MockLlmProvider } from '../src/lib/llm/index';
 import { setSearchProvider, MockSearchProvider } from '../src/lib/search/index';
-import { setEmailProvider, MockEmailProvider } from '../src/lib/email/index';
+import { setEmailProvider, getEmailProvider, MockEmailProvider } from '../src/lib/email/index';
 import { newId } from '../src/lib/hash';
 import type { Db } from '../src/lib/db';
 
@@ -211,4 +211,18 @@ export async function insertCommitment(
     ],
   );
   return id;
+}
+
+/**
+ * Makes the installed mock email transport report its sends as REAL.
+ *
+ * The owner notifier refuses to consume a notification claim for a simulated
+ * send — otherwise a validated opportunity would be marked "notified" while the
+ * email went to a mock, and the owner would never be told, even after the
+ * provider was configured. Tests that exercise notification DEDUPE therefore
+ * need a transport that stands in for a working provider.
+ */
+export function treatEmailAsDelivered(): void {
+  const provider = getEmailProvider();
+  if (provider instanceof MockEmailProvider) provider.deliversAsReal = true;
 }

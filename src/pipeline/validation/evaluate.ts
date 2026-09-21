@@ -28,6 +28,7 @@ import { evaluateGateAndMint } from './gate';
 import { evaluateRevenueIntent, persistValidationLevel } from './revenue-intent';
 import type { CampaignCounts, GateEvaluation, HealthVerdict } from './types';
 import { checkCampaignHealth } from '../../lib/campaign-health';
+import { campaignVolumeCeiling } from '../../autonomy/deliverability';
 
 const logger = createLogger('validation:evaluate');
 const ACTOR = 'evaluate_campaigns';
@@ -177,11 +178,15 @@ export function decideFailure(inputs: FailureInputs): FailureVerdict | null {
     };
   }
 
-  // The campaign has spent its entire send allowance and still cannot clear the gate.
-  if (counts.delivered >= cfg.maxEmailsPerCampaign) {
+  // The campaign has spent its entire send allowance and still cannot clear the
+  // gate. The allowance is the REACHABLE ceiling — the ramp's last step caps
+  // attempts, so comparing against MAX_EMAILS_PER_CAMPAIGN could never be true
+  // and an inconclusive campaign was never killed.
+  const allowance = campaignVolumeCeiling(cfg);
+  if (counts.delivered >= allowance) {
     return {
       reason: 'NO_MEANINGFUL_RESPONSE',
-      detail: `campaign exhausted its ${cfg.maxEmailsPerCampaign}-email allowance (${counts.delivered} delivered) without clearing the gate: ${inputs.unmetSummary}`,
+      detail: `campaign exhausted its ${allowance}-email allowance (${counts.delivered} delivered) without clearing the gate: ${inputs.unmetSummary}`,
     };
   }
 

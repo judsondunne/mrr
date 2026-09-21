@@ -132,7 +132,11 @@ export function buildWorld(seed = 42): SimIdea[] {
       paidCompetitorCount: 2,
       estimatedBuildDays: 5 + Math.floor(rng() * 2),
       disallowedReason: null,
-      prospectYield: 120 + Math.floor(rng() * 60),
+      // Deep enough that the segment still clears MIN_QUALIFIED_PROSPECTS after
+      // the simulated web's realistic qualification losses (auth walls, pages
+      // with no published address, vendor pages). These categories are supposed
+      // to die of NO COMMITMENT at validation, not of a thin prospect list.
+      prospectYield: 190 + Math.floor(rng() * 60),
       replyRate: 0.04 + rng() * 0.03,
       // Replies happen; commitments do not. Research quality is not demand.
       strongShare: 0.1,

@@ -304,7 +304,11 @@ describe('autoStart', () => {
     const alerts = await notifications();
     expect(alerts).toHaveLength(1);
     expect(alerts[0]?.kind).toBe('CREDENTIAL_FAILURE');
-    expect(ctx.email.sent).toHaveLength(1);
+    // One durable notification row. The send is retried while the very
+    // configuration it is complaining about keeps it undeliverable, so that the
+    // owner is reached as soon as they fix it rather than never.
+    expect(ctx.email.sent.length).toBeGreaterThanOrEqual(1);
+    expect(ctx.email.sent.every((e) => e.to === 'owner@example.com')).toBe(true);
   });
 
   it('promotes BLOCKED_CONFIGURATION to RUNNING on its own, with no second notification', async () => {

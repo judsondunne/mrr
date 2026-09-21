@@ -202,7 +202,28 @@ export async function notifyValidatedOpportunities(): Promise<{ sent: number }> 
         continue;
       }
 
-      await sendEmail({ to: cfg.ownerNotificationEmail, subject, text: body });
+      const result = await sendEmail({ to: cfg.ownerNotificationEmail, subject, text: body });
+
+      // A simulated send is NOT a notification. Marking it sent would set
+      // sent_at, and the dedupe check is `sent_at IS NOT NULL` — so the owner
+      // would never hear about this opportunity again, including after the
+      // provider is configured for real. Leave the claim unsent and say so.
+      if (result.simulated) {
+        logger.warn('validated opportunity NOT emailed: email provider is a mock', {
+          opportunityId: opportunity.id,
+          notificationId: claim.id,
+        });
+        await recordAudit({
+          entityType: 'opportunity',
+          entityId: opportunity.id,
+          eventType: 'ERROR',
+          actor: ACTOR,
+          reason: 'owner notification suppressed: email provider is a mock',
+          detail: { notificationId: claim.id, dedupeKey, provider: result.provider, retryable: true },
+        });
+        continue;
+      }
+
       await markSent(claim.id);
       sent += 1;
 
@@ -212,7 +233,7 @@ export async function notifyValidatedOpportunities(): Promise<{ sent: number }> 
         eventType: 'DECISION',
         actor: ACTOR,
         reason: 'owner notified of validated opportunity',
-        detail: { notificationId: claim.id, dedupeKey },
+        detail: { notificationId: claim.id, dedupeKey, providerMessageId: result.providerMessageId },
       });
       logger.info('owner notified of validated opportunity', { opportunityId: opportunity.id });
     } catch (err) {
@@ -270,7 +291,20 @@ export async function notifyOwner(params: {
   }
 
   try {
-    await sendEmail({ to: cfg.ownerNotificationEmail, subject: params.subject, text: params.body });
+    const result = await sendEmail({
+      to: cfg.ownerNotificationEmail,
+      subject: params.subject,
+      text: params.body,
+    });
+    // See notifyValidatedOpportunities: a mocked send must not consume the
+    // claim, or this alert is permanently deduped away.
+    if (result.simulated) {
+      logger.warn('owner alert NOT emailed: email provider is a mock', {
+        kind: params.kind,
+        dedupeKey: params.dedupeKey,
+      });
+      return { sent: false, deduped: false };
+    }
     await markSent(claim.id);
     await recordAudit({
       entityType: 'system',

@@ -22,7 +22,7 @@ import { evaluateGate } from '../../src/pipeline/validation/gate';
 import { getCampaignCounts } from '../../src/pipeline/validation/counts';
 import { notifyValidatedOpportunities } from '../../src/pipeline/notify/index';
 import { findClaimLanguage } from '../../src/pipeline/notify/claims';
-import { generateBuildSpec, MVP_SECTIONS, SPEC_FILES } from '../../src/pipeline/buildspec/index';
+import { generateBuildSpec, SPEC_FILES } from '../../src/pipeline/buildspec/index';
 
 let outputDir: string | null = null;
 
@@ -209,6 +209,10 @@ describe('STRONG fixture: DISCOVERED all the way to READY_TO_BUILD', () => {
   it('walks the exact state progression and produces the owner email and the build spec', async () => {
     outputDir = await mkdtemp(path.join(tmpdir(), 'mrr-validated-'));
     const { db, email } = await freshDb({ ...PRODUCTION_GATE, VALIDATED_OUTPUT_DIR: outputDir });
+    // This test proves the LIVE owner-notification path end to end, so the
+    // transport must stand in for a working provider. The notifier refuses to
+    // consume a notification claim for a simulated send, by design.
+    email.deliversAsReal = true;
 
     // --- fixture ---------------------------------------------------------
     const opportunityId = await insertOpportunity(db, {
@@ -436,54 +440,79 @@ describe('STRONG fixture: DISCOVERED all the way to READY_TO_BUILD', () => {
     expect(readme).toContain('6 unique companies produced a strong purchase-intent event');
     expect(readme).toContain('Wholesale Minimums');
 
-    const mvp = await read('mvp.md');
-    let cursor = -1;
-    for (const section of MVP_SECTIONS) {
-      const at = mvp.indexOf(`## ${section}`);
-      expect(at, `mvp.md is missing ## ${section}`).toBeGreaterThan(cursor);
-      cursor = at;
-    }
-    expect(mvp).toContain('$19/month');
-    expect(mvp).toContain('Per-customer-group minimum order value');
-    expect(mvp).toContain('Multi-currency minimums');
+    // Every claim a build session would act on must be traceable to a row.
+    const icp = await read('ICP.md');
+    expect(icp).toContain('northgate-supply.example.com');
+    expect(icp).toContain('qualified against this ICP');
 
-    const customers = await read('customers.md');
-    expect(customers).toContain('northgate-supply.example.com');
-    expect(customers).toContain('CSV import of customer groups');
-    expect(customers).toContain('Send the install link, we will put it on the wholesale store this week.');
+    const evidence = await read('CUSTOMER_EVIDENCE.md');
+    expect(evidence).toContain('northgate-supply.example.com');
+    expect(evidence).toContain('CSV import of customer groups');
+    expect(evidence).toContain('Send the install link, we will put it on the wholesale store this week.');
+    // Quotes cite their real row ids.
+    expect(evidence).toMatch(/_source row: (commitments|messages)\.[a-z0-9_]+_/);
 
-    const marketEvidence = await read('market-evidence.md');
-    expect(marketEvidence).toContain('BigMinimums');
-    expect(marketEvidence).toContain('https://apps.shopify.com/bigminimums/reviews?page=2');
-    expect(marketEvidence).toContain('INCUMBENT_NO_FREE_TIER');
+    const waiting = await read('WAITING_CUSTOMERS.md');
+    expect(waiting).toContain('northgate-supply.example.com');
 
-    const requirements = await read('requirements.md');
+    const market = await read('MARKET.md');
+    expect(market).toContain('INCUMBENT_NO_FREE_TIER');
+
+    const competitors = await read('COMPETITORS.md');
+    expect(competitors).toContain('BigMinimums');
+    expect(competitors).toContain('https://apps.shopify.com/bigminimums/reviews?page=2');
+
+    const pricing = await read('PRICING.md');
+    expect(pricing).toContain('$19/month');
+    expect(pricing).toContain('This is arithmetic, not a forecast:');
+
+    // REQUIREMENTS.md is the provenance contract: every requirement cites
+    // real commitment/message row ids and a unique-company count.
+    const requirements = await read('REQUIREMENTS.md');
     expect(requirements).toContain('REQ-1');
     expect(requirements).toContain('CSV import of customer groups');
+    expect(requirements).toMatch(/`(commitments|messages)\.[a-z0-9_]+`/);
+    for (const line of requirements.split('\n')) {
+      if (!/^\| REQ-\d+ \|/.test(line)) continue;
+      const cells = line.split('|').map((c) => c.trim());
+      // | id | requirement | basis | companies | source rows |
+      expect(['REQUESTED', 'NEEDED_BY_CORE_WORKFLOW']).toContain(cells[3]);
+      expect(Number(cells[4])).toBeGreaterThan(0);
+      expect(cells[5], `${cells[1]} cites no source row`).toMatch(/(commitments|messages)\./);
+    }
 
-    const acceptance = await read('acceptance-tests.md');
+    // A feature the evidence does not support is cut, and named.
+    const nonGoals = await read('NON_GOALS.md');
+    expect(nonGoals).toContain('Multi-currency minimums');
+
+    const feasibility = await read('API_FEASIBILITY.md');
+    expect(feasibility).toMatch(/PLATFORM_APIS_EXIST|No feasibility revalidation/);
+
+    const acceptance = await read('ACCEPTANCE_TESTS.md');
     expect(acceptance).toContain('AT-1');
     expect(acceptance).toContain('**Given**');
     expect(acceptance).toContain('AT-SCOPE');
 
-    const architecture = await read('architecture.md');
+    const architecture = await read('ARCHITECTURE.md');
     expect(architecture).toContain('Budget: 5 days');
 
-    const launch = await read('launch-plan.md');
+    const launch = await read('LAUNCH_PLAN.md');
     expect(launch).toContain('This is arithmetic, not a forecast:');
-    expect(launch).toContain('northgate-supply.example.com');
 
     for (const file of SPEC_FILES) {
       const content = await read(file);
       expect(findClaimLanguage(content), `${file} contains claim language`).toEqual([]);
-      expect(content.length).toBeGreaterThan(200);
+      expect(content.length, `${file} is too short to be useful`).toBeGreaterThan(200);
+      // No placeholder ever ships in a hand-off package.
+      expect(content, `${file} contains a placeholder`).not.toMatch(/\bTODO\b|\bTBD\b|\bFIXME\b|Coming soon|Lorem ipsum/i);
+      expect(content.trim().length, `${file} is empty`).toBeGreaterThan(0);
     }
 
     // Writing is safe to re-run.
     const again = await generateBuildSpec(opportunityId);
     expect(again.directory).toBe(spec.directory);
     expect((await readdir(spec.directory)).sort()).toEqual([...SPEC_FILES].sort());
-    expect(await read('mvp.md')).toContain('## ACCEPTANCE CRITERIA');
+    expect(await read('REQUIREMENTS.md')).toContain('REQ-1');
 
     // And it never escapes its output root.
     expect(spec.directory.startsWith(outputDir + path.sep)).toBe(true);

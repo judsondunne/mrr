@@ -106,6 +106,30 @@ export function campaignRampCap(rampStep: number): number {
   return Math.max(0, Math.min(cap, cfg.maxEmailsPerCampaign));
 }
 
+/**
+ * The most a single campaign can EVER attempt.
+ *
+ * The ramp's final step is a hard ceiling — `maybeAdvanceRamp` reports
+ * RAMP_AT_MAX and stops — so when the last configured step is below
+ * MAX_EMAILS_PER_CAMPAIGN, that step is the real limit, not the config value.
+ *
+ * Anything that asks "has this campaign spent its allowance?" must compare
+ * against THIS number. Comparing against MAX_EMAILS_PER_CAMPAIGN livelocked a
+ * campaign: the SCALING lifecycle target and the exhaustion kill both waited
+ * for 150 delivered while the ramp refused to let more than 75 be attempted,
+ * so an inconclusive campaign never completed, never failed, and held one of
+ * the MAX_ACTIVE_VALIDATIONS slots permanently. Two of those and the system
+ * stops starting experiments for good.
+ *
+ * This raises no sending limit. It only lets "exhausted" mean what it can.
+ */
+export function campaignVolumeCeiling(cfg: Config = getConfig()): number {
+  const steps = cfg.deliverability.rampSteps;
+  if (steps.length === 0) return cfg.maxEmailsPerCampaign;
+  const lastStepCap = campaignRampCap(steps.length - 1);
+  return Math.max(0, Math.min(cfg.maxEmailsPerCampaign, lastStepCap));
+}
+
 /** Domain-level warm-up ceiling for today. */
 export async function domainDailyCap(): Promise<{ cap: number; warmupDay: number }> {
   const row = await readReputation();

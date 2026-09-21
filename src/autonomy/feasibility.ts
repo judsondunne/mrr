@@ -649,3 +649,77 @@ export async function lastFeasibilityCheckAt(opportunityId: string): Promise<Dat
   if (value === null) return null;
   return value instanceof Date ? value : new Date(String(value));
 }
+
+/**
+ * The newest persisted feasibility report, read from the audit trail rather
+ * than re-run. The build spec needs to print what was checked without paying
+ * for another round of documentation fetches and spikes.
+ */
+export async function lastFeasibilityReport(
+  opportunityId: string,
+): Promise<{
+  checkedAt: Date | null;
+  feasible: boolean | null;
+  checks: Array<{ name: string; passed: boolean; detail: string; sourceUrl: string | null }>;
+  verifiedCapabilities: string[];
+  unverifiedCapabilities: string[];
+  missingCapabilities: string[];
+  estimatedBuildDays: number | null;
+}> {
+  const db = await getDb();
+  const res = await db.query<{ created_at: string | Date; detail_json: unknown }>(
+    `SELECT created_at, detail_json FROM audit_events
+      WHERE entity_type = 'opportunity' AND entity_id = $1
+        AND actor = $2 AND event_type = 'DECISION'
+      ORDER BY created_at DESC
+      LIMIT 1`,
+    [opportunityId, ACTOR],
+  );
+  const row = res.rows[0];
+  const empty = {
+    checkedAt: await lastFeasibilityCheckAt(opportunityId),
+    feasible: null,
+    checks: [],
+    verifiedCapabilities: [],
+    unverifiedCapabilities: [],
+    missingCapabilities: [],
+    estimatedBuildDays: null,
+  };
+  if (!row) return empty;
+
+  const detail = parseDetail(row.detail_json);
+  return {
+    checkedAt: row.created_at instanceof Date ? row.created_at : new Date(String(row.created_at)),
+    feasible: typeof detail.feasible === 'boolean' ? detail.feasible : null,
+    checks: Array.isArray(detail.checks)
+      ? (detail.checks as Array<Record<string, unknown>>).map((c) => ({
+          name: String(c.name ?? 'UNKNOWN'),
+          passed: c.passed === true,
+          detail: String(c.detail ?? ''),
+          sourceUrl: typeof c.sourceUrl === 'string' ? c.sourceUrl : null,
+        }))
+      : [],
+    verifiedCapabilities: stringList(detail.verifiedCapabilities),
+    unverifiedCapabilities: stringList(detail.unverifiedCapabilities),
+    missingCapabilities: stringList(detail.missingCapabilities),
+    estimatedBuildDays:
+      typeof detail.estimatedBuildDays === 'number' ? detail.estimatedBuildDays : null,
+  };
+}
+
+function parseDetail(raw: unknown): Record<string, unknown> {
+  if (raw === null || raw === undefined) return {};
+  if (typeof raw === 'string') {
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      return parsed !== null && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
+    } catch {
+      return {};
+    }
+  }
+  return typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+}
+
+function stringList(raw: unknown): string[] {
+  return Array.isArray(raw) ? raw.filter((v): v is string => typeof v === 'string') : [];
+}

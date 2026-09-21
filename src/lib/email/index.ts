@@ -91,6 +91,15 @@ export class MockEmailProvider implements EmailProvider {
   private counter = 0;
   /** Set to make the next send throw, for retry/bounce tests. */
   failNext: Error | null = null;
+  /**
+   * Report sends as REAL rather than simulated.
+   *
+   * Callers that treat a simulated send as "not delivered" — the owner
+   * notifier refuses to consume a notification claim for one — need a
+   * transport that stands in for a working Resend while still capturing the
+   * message. Off by default, so shadow mode keeps reporting the truth.
+   */
+  deliversAsReal = false;
 
   async send(email: OutboundEmail): Promise<SendResult> {
     if (this.failNext) {
@@ -100,12 +109,18 @@ export class MockEmailProvider implements EmailProvider {
     }
     this.sent.push(email);
     this.counter += 1;
-    logger.info('SHADOW: email not sent (mock provider)', {
-      to: email.to,
-      subject: email.subject,
-      bytes: email.text.length,
-    });
-    return { providerMessageId: `mock-${this.counter}-${Date.now()}`, provider: 'mock', simulated: true };
+    if (!this.deliversAsReal) {
+      logger.info('SHADOW: email not sent (mock provider)', {
+        to: email.to,
+        subject: email.subject,
+        bytes: email.text.length,
+      });
+    }
+    return {
+      providerMessageId: `mock-${this.counter}-${Date.now()}`,
+      provider: 'mock',
+      simulated: !this.deliversAsReal,
+    };
   }
 
   reset(): void {

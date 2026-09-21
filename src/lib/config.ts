@@ -91,6 +91,15 @@ export interface Config {
 
   ownerName: string;
   ownerNotificationEmail: string;
+  /**
+   * The ONLY address the email round-trip canary may contact.
+   *
+   * Deliberately separate from ownerNotificationEmail so a canary can be run
+   * against a mailbox the operator controls and can reply from, without
+   * pointing production alerts at it. A canary must never reach a third party,
+   * so `npm run canary:email` refuses to run when this is unset.
+   */
+  ownerTestEmail: string;
   senderCompany: string;
   senderEmail: string;
   senderPostalAddress: string;
@@ -261,6 +270,7 @@ function build(): Config {
 
     ownerName: str('OWNER_NAME'),
     ownerNotificationEmail: str('OWNER_NOTIFICATION_EMAIL'),
+    ownerTestEmail: str('OWNER_TEST_EMAIL'),
     senderCompany: str('SENDER_COMPANY'),
     senderEmail: str('SENDER_EMAIL'),
     senderPostalAddress: str('SENDER_POSTAL_ADDRESS'),

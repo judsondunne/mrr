@@ -12,7 +12,7 @@
     "start": "next start",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --exclude tests/chaos/**",
     "test:watch": "vitest",
     "migrate": "tsx src/scripts/migrate.ts",
     "seed": "tsx src/scripts/seed.ts",
@@ -21,8 +21,12 @@
     "autonomy:enable": "tsx src/scripts/autonomy.ts enable",
     "autonomy:disable": "tsx src/scripts/autonomy.ts disable",
     "setup-check": "tsx src/scripts/setup-check.ts",
-    "verify": "npm run typecheck && npm run lint && npm run test && npm run build",
-    "simulate": "tsx src/scripts/simulate.ts"
+    "verify": "npm run typecheck && npm run lint && npm run test && npm run test:chaos && npm run build",
+    "simulate": "tsx src/scripts/simulate.ts",
+    "test:chaos": "vitest run tests/chaos",
+    "canary:email": "tsx src/scripts/canary-email.ts",
+    "canary:research": "tsx src/scripts/canary-research.ts",
+    "providers:health": "tsx src/scripts/providers-health.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.127.0",

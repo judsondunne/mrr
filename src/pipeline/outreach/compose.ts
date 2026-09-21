@@ -98,7 +98,26 @@ export function sanitizeObservation(raw: string): string | null {
 export function fallbackObservation(prospect: ProspectContext): string | null {
   const reason = prospect.qualificationReason?.replace(/\s+/g, ' ').trim() ?? '';
   if (reason === '') return null;
-  const lowered = reason.charAt(0).toLowerCase() + reason.slice(1);
+
+  // The recorded reason always cites where the evidence was found — the
+  // qualifier appends "...published at https://<url>". `sanitizeObservation`
+  // rejects any string containing a URL or an address, so passing the reason
+  // through verbatim made this fallback impossible to satisfy: every model
+  // failure became "refuse to draft" and no prospect was ever emailed.
+  //
+  // The citation is exactly the part that must not appear in the email, so it
+  // is dropped here rather than disqualifying the clause it is attached to.
+  const withoutCitation = reason
+    .replace(/[;,]?\s*(?:published|found|listed|stated)\s+at\s+\S+/gi, '')
+    .replace(/https?:\/\/\S+/gi, '')
+    .replace(/\bwww\.\S+/gi, '')
+    .replace(/\S+@\S+/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/[\s;,]+$/, '')
+    .trim();
+  if (withoutCitation === '') return null;
+
+  const lowered = withoutCitation.charAt(0).toLowerCase() + withoutCitation.slice(1);
   return sanitizeObservation(lowered.slice(0, 180));
 }
 

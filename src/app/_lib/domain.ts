@@ -6,15 +6,17 @@
  * deliberately conservative: scheme, credentials, `www.`, port, path, query and
  * fragment are stripped and the host is lowercased — nothing else.
  *
- * In particular it does NOT reduce to an eTLD+1 registrable domain, because on
- * hosted ecosystems (`acme.myshopify.com`) that would collapse every merchant
- * in the ecosystem into a single "company" and silently destroy the gate's
- * unique-company counts.
+ * The final collapse is delegated to `registrableDomain`, the one definition
+ * shared with the outreach path, so both sources of commitments agree on what
+ * one company is. That normalizer keeps the tenant label on hosted ecosystems
+ * (`acme.myshopify.com` stays whole) rather than collapsing every merchant in
+ * the ecosystem into a single "company".
  *
  *   https://WWW.Shop.com/path  -> shop.com
  *   HELLO@Shop.co.uk           -> shop.co.uk
  *   acme.myshopify.com         -> acme.myshopify.com
  */
+import { registrableDomain } from '@/pipeline/prospecting/domain';
 
 const MAX_DOMAIN_LENGTH = 253;
 const HOST_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/;
@@ -50,7 +52,13 @@ export function normalizeDomain(input: string | null | undefined): string | null
   if (value === '' || value.length > MAX_DOMAIN_LENGTH) return null;
   if (!HOST_PATTERN.test(value)) return null;
 
-  return value;
+  // The company key MUST agree with the one the outreach path writes, because
+  // the READY_TO_BUILD gate counts unique company keys across both sources. A
+  // business that fills in the landing form AND replies to an email would
+  // otherwise be counted twice. `registrableDomain` is the single definition:
+  // it collapses shop.acme.com -> acme.com while keeping the tenant label on
+  // multi-tenant hosts, so a.myshopify.com and b.myshopify.com stay distinct.
+  return registrableDomain(value);
 }
 
 /** The domain part of an email address, normalized the same way. */

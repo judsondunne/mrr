@@ -32,6 +32,7 @@ import {
   getSendAllowance,
   isSendingPaused,
   maybeAdvanceRamp,
+  campaignVolumeCeiling,
   recordFirstSend,
   resumeSendingIfRecovered,
 } from '../../autonomy/deliverability';
@@ -92,7 +93,10 @@ export function cumulativeTargetForState(state: string, cfg: Config): number {
     case 'BATCH_2':
       return Math.min(cfg.initialEmailBatch + cfg.secondEmailBatch, cfg.maxEmailsPerCampaign);
     case 'SCALING':
-      return cfg.maxEmailsPerCampaign;
+      // The reachable ceiling, not the configured one: the ramp's last step is
+      // a hard stop, so aiming at MAX_EMAILS_PER_CAMPAIGN meant SCALING could
+      // never reach its quota and never roll to COMPLETE.
+      return campaignVolumeCeiling(cfg);
     default:
       return 0;
   }

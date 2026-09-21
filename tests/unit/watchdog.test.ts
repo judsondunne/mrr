@@ -6,7 +6,7 @@
  * interrupted only when it cannot — once per fault, not once per pass.
  */
 import { describe, it, expect, afterEach } from 'vitest';
-import { freshDb, teardown } from '../helpers';
+import { freshDb, teardown, treatEmailAsDelivered } from '../helpers';
 import { recoverAbandonedJobs, releaseStaleLocks, runWatchdog } from '../../src/autonomy/watchdog';
 import { autoStart } from '../../src/autonomy/autostart';
 import { getRuntimeState, getSubsystemHealth, recordHeartbeat } from '../../src/autonomy/runtime';
@@ -134,6 +134,9 @@ describe('self-recovery before escalation', () => {
 
   it('escalates once, not once per pass, when recovery keeps failing', async () => {
     const ctx = await freshDb(READY_ENV);
+    // An alert only stops repeating once it has actually been delivered; a
+    // simulated send does not consume the claim.
+    treatEmailAsDelivered();
     expect((await autoStart()).state).toBe('RUNNING');
     const real = await getDb();
     setDbForTesting(withFailingPings(real, Number.MAX_SAFE_INTEGER));
@@ -164,8 +167,15 @@ describe('self-recovery before escalation', () => {
     expect(alerts[0]).toMatchObject({ kind: 'CREDENTIAL_FAILURE', dedupe_key: 'WATCHDOG:email_out:CREDENTIALS' });
 
     await runWatchdog();
+    // ONE durable alert row, deduped by key, is what the dashboard shows and
+    // what stops the owner being spammed.
     expect(await watchdogAlerts()).toHaveLength(1);
-    expect(ctx.email.sent.filter((e) => e.subject.includes('email_out'))).toHaveLength(1);
+
+    // The send, however, is retried every pass — and must be. This alert is
+    // ABOUT the missing sending credential, so it cannot be delivered yet;
+    // consuming the claim on a failed send would mean the owner is never told,
+    // including after they fix the key. Retrying is what makes the fix land.
+    expect(ctx.email.sent.filter((e) => e.subject.includes('email_out')).length).toBeGreaterThanOrEqual(1);
   });
 });
 

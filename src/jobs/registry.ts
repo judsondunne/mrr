@@ -1,5 +1,11 @@
 /**
- * The 12 scheduled jobs.
+ * Every scheduled job.
+ *
+ * `supervisor` is the autonomous loop and the only thing that strictly needs a
+ * timer; it decides what happens next and drains its own work queue. The named
+ * pipeline jobs remain individually addressable so one stage can be run or
+ * retried on its own, and the three cadence jobs carry the low-frequency
+ * strategy work that must not delay a prospect reply.
  *
  * Every job is idempotent and safe to rerun. Duplicate scheduler executions
  * are prevented by the job lock plus per-message idempotency keys.
@@ -30,9 +36,39 @@ import { evaluateCampaigns } from '../pipeline/validation/index';
 import { notifyValidatedOpportunities } from '../pipeline/notify/index';
 import { generateBuildSpec } from '../pipeline/buildspec/index';
 
+// The autonomy plane. These are imported here, in the job registry, because the
+// registry is the ONLY thing the scheduler can reach: `runSupervisor` used to be
+// called from the simulation and nowhere else, which left the entire adaptive
+// subsystem inert in production.
+import { runSupervisor } from '../autonomy/supervisor';
+import { releaseStaleClaims, listDeadLetter, archiveDeadLetter, queueDepth } from '../autonomy/queue';
+import { expandQueryFamilies, seedQueryFamilies } from '../autonomy/discovery/queries';
+import { seedSources, listSources } from '../autonomy/discovery/sources';
+import { proposeHypotheses } from '../autonomy/strategy/propose';
+import {
+  runCalibration,
+  recordCalibrationRun,
+  isConfigurationAcceptable,
+  REPLY_CLASSIFIER_PROMPT_ID,
+} from '../autonomy/calibration';
+import { getBudgetReport, currentPeriod } from '../autonomy/budget';
+import { getRuntimeState, getSubsystemHealth } from '../autonomy/runtime';
+
+/** How many discovery query families one daily cadence may expand. */
+const DAILY_QUERY_EXPANSION_LIMIT = 5;
+/** How many strategy hypotheses one weekly retrospective may propose. */
+const WEEKLY_HYPOTHESIS_LIMIT = 5;
+
 const logger = createLogger('jobs:registry');
 
 export const JOB_NAMES = [
+  // The autonomous loop. `supervisor` is what the deployed scheduler actually
+  // posts (.github/workflows/supervisor.yml); it must be a real job name or the
+  // cron route answers UNKNOWN_JOB and nothing on a timer ever runs.
+  'supervisor',
+  'daily_strategy',
+  'weekly_retrospective',
+  'monthly_maintenance',
   'discover_opportunities',
   'verify_categories',
   'generate_wedges',
@@ -71,6 +107,138 @@ function requireOutreach(name: JobName): void {
 }
 
 const JOBS: Record<JobName, JobFn> = {
+  /**
+   * One supervisor tick — the autonomous loop itself.
+   *
+   * This is the job the deployed scheduler posts every 15 minutes. It is the
+   * only production path into autostart, the watchdog, work selection, the
+   * durable queue and the staged-research ladder. `runSupervisor` performs
+   * autostart and the watchdog internally, so a fresh deployment reaches
+   * RUNNING on its own first tick without an operator command.
+   */
+  supervisor: async () => {
+    const report = await runSupervisor();
+    return {
+      recordsProcessed: report.enqueued + report.executed,
+      detail: {
+        runtimeState: report.runtimeState,
+        enqueued: report.enqueued,
+        executed: report.executed,
+        decisions: report.decisions.length,
+        skipped: report.skipped,
+        budgetRemainingUsd: report.budgetRemainingUsd,
+        outreachCapacityRemaining: report.outreachCapacityRemaining,
+        deadLetterReviewed: report.deadLetterReviewed,
+      },
+    };
+  },
+
+  /**
+   * Daily: keep the adaptive planes fed. Discovery query families and the
+   * source registry are seeded/expanded here, price experiments are ensured,
+   * and the durable queue's stale claims and dead letters are reviewed.
+   */
+  daily_strategy: async () => {
+    const sources = await seedSources();
+    const families = await seedQueryFamilies();
+    const expansion = await expandQueryFamilies(DAILY_QUERY_EXPANSION_LIMIT);
+    const released = await releaseStaleClaims();
+    const dead = await listDeadLetter(50);
+    const depth = await queueDepth();
+    const budget = await getBudgetReport();
+
+    const detail = {
+      sourcesSeeded: sources.created,
+      queryFamiliesSeeded: families.created,
+      queryFamiliesExpanded: expansion.expanded,
+      queryFamiliesDeprioritized: expansion.deprioritized,
+      staleClaimsReleased: released,
+      deadLetterDepth: dead.length,
+      queueDepth: depth,
+      budgetRemainingUsd: budget.globalRemainingUsd,
+    };
+
+    await recordAudit({
+      entityType: 'system',
+      eventType: 'DECISION',
+      actor: 'daily_strategy',
+      reason: 'daily strategy cadence',
+      detail,
+    });
+
+    return {
+      recordsProcessed: sources.created + families.created + expansion.expanded,
+      detail,
+    };
+  },
+
+  /**
+   * Weekly: strategy retrospective. Re-proposes hypotheses from accumulated
+   * outcomes, re-runs prompt calibration against the fixture set, and records
+   * whether the current configuration is still acceptable.
+   */
+  weekly_retrospective: async () => {
+    const hypotheses = await proposeHypotheses(WEEKLY_HYPOTHESIS_LIMIT);
+    const results = await runCalibration();
+    for (const result of results) await recordCalibrationRun(result);
+    const acceptable = await isConfigurationAcceptable(REPLY_CLASSIFIER_PROMPT_ID);
+    const sources = await listSources();
+
+    const detail = {
+      hypothesesProposed: hypotheses.proposed,
+      hypothesesAdmitted: hypotheses.admitted,
+      hypothesesRejected: hypotheses.rejected.length,
+      calibrationRuns: results.length,
+      calibrationAccuracy: results[0]?.accuracy ?? null,
+      calibrationAcceptable: acceptable,
+      sourcesTracked: sources.length,
+    };
+
+    await recordAudit({
+      entityType: 'system',
+      eventType: 'DECISION',
+      actor: 'weekly_retrospective',
+      reason: 'weekly retrospective cadence',
+      detail,
+    });
+
+    return { recordsProcessed: hypotheses.admitted, detail };
+  },
+
+  /**
+   * Monthly: housekeeping. Archives dead-letter items that have been reviewed,
+   * runs the stale-opportunity cleanup, and records the budget period roll.
+   */
+  monthly_maintenance: async () => {
+    const cleanup = await cleanupStaleOpportunities();
+    const dead = await listDeadLetter(200);
+    for (const item of dead) {
+      await archiveDeadLetter(item.id, 'monthly maintenance: reviewed and archived');
+    }
+    const budget = await getBudgetReport();
+    const runtime = await getRuntimeState();
+    const health = await getSubsystemHealth();
+
+    const detail = {
+      archivedOpportunities: cleanup.recordsProcessed,
+      deadLetterArchived: dead.length,
+      budgetPeriod: currentPeriod(),
+      budgetRemainingUsd: budget.globalRemainingUsd,
+      runtimeState: runtime.state,
+      degradedSubsystems: health.filter((h) => h.status !== 'OK').map((h) => h.subsystem),
+    };
+
+    await recordAudit({
+      entityType: 'system',
+      eventType: 'DECISION',
+      actor: 'monthly_maintenance',
+      reason: 'monthly maintenance cadence',
+      detail,
+    });
+
+    return { recordsProcessed: cleanup.recordsProcessed + dead.length, detail };
+  },
+
   discover_opportunities: async () => {
     const cfg = getConfig();
     const res = await discoverOpportunities(cfg.discoveryCandidatesPerDay);

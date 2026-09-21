@@ -24,6 +24,29 @@ interface RobotRule {
   path: string;
 }
 
+/**
+ * The HTTP transport, injectable like the LLM/search/email providers.
+ *
+ * HTTP is the fourth boundary to the outside world, and it was the only one
+ * without a seam — which meant the simulation could not exercise prospect
+ * discovery or page extraction at all, because those fetch merchant sites.
+ * Everything above this line (robots, throttling, retry, size cap, timeout)
+ * still runs against the injected transport, so a simulated run exercises the
+ * real polite-fetch behaviour rather than bypassing it.
+ */
+export type HttpTransport = (url: string, init: RequestInit) => Promise<Response>;
+
+let transport: HttpTransport | null = null;
+
+/** Pass null to restore the platform `fetch`. */
+export function setHttpTransport(t: HttpTransport | null): void {
+  transport = t;
+}
+
+function httpTransport(): HttpTransport {
+  return transport ?? ((url, init) => fetch(url, init));
+}
+
 export interface FetchResult {
   url: string;
   finalUrl: string;
@@ -84,7 +107,7 @@ async function getRobots(origin: string): Promise<RobotRule[]> {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8000);
-    const res = await fetch(`${origin}/robots.txt`, {
+    const res = await httpTransport()(`${origin}/robots.txt`, {
       headers: { 'User-Agent': cfg.userAgent },
       signal: controller.signal,
       redirect: 'follow',
@@ -149,7 +172,7 @@ export async function politeFetch(url: string, opts: FetchOptions = {}): Promise
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const res = await fetch(url, {
+      const res = await httpTransport()(url, {
         headers: {
           'User-Agent': cfg.userAgent,
           Accept: 'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8',
