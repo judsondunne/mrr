@@ -114,7 +114,11 @@ export async function evaluateReadiness(): Promise<ReadinessReport> {
     ownerAction: 'Provide a stable HTTPS hostname for this Mac.',
   });
 
-  const ephemeral = /trycloudflare\.com|ngrok-free\.app|loca\.lt/i.test(cfg.publicBaseUrl);
+  // Only hostnames that are random by construction are rejected. A RESERVED
+  // ngrok domain is stable across restarts even though it shares the
+  // ngrok-free.app suffix with throwaway ones, so the suffix alone cannot
+  // condemn it — a quick tunnel, by contrast, is a new name every start.
+  const ephemeral = /trycloudflare\.com|loca\.lt|\.serveo\.net/i.test(cfg.publicBaseUrl);
   add({
     id: 'PUBLIC_BASE_URL_STABLE',
     label: 'PUBLIC_BASE_URL survives a restart',
