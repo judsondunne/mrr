@@ -10,12 +10,13 @@
  *
  * Before adding a call site, ask: "can normal code do this?" If yes, do that.
  */
-import { getConfig } from '../config';
+import { getConfig, type LlmProviderName } from '../config';
 import { getDb } from '../db';
 import { sha256 } from '../hash';
 import { createLogger } from '../logger';
 import { assertBudget, estimateLlmCost, recordCosts } from '../cost';
 import { AnthropicProvider } from './anthropic';
+import { GeminiProvider } from './gemini';
 import { MockLlmProvider } from './mock';
 import type { LlmProvider, LlmRequest, LlmResponse } from './types';
 
@@ -26,17 +27,34 @@ const logger = createLogger('llm');
 
 let provider: LlmProvider | null = null;
 
+/**
+ * The configured provider, or the mock when its credential is absent.
+ *
+ * Falling back to the mock rather than throwing is deliberate: it keeps shadow
+ * mode runnable with no keys at all. It is also the most dangerous behaviour in
+ * the file, because fabricated output looks exactly like real output — so the
+ * substitution is warned about loudly, and `npm run providers:health` and the
+ * canaries refuse to report success when it has happened.
+ */
 export function getLlmProvider(): LlmProvider {
   if (!provider) {
     const cfg = getConfig();
-    provider = cfg.llmProvider === 'mock' || !cfg.anthropicApiKey
-      ? new MockLlmProvider()
-      : new AnthropicProvider();
-    if (cfg.llmProvider !== 'mock' && !cfg.anthropicApiKey) {
-      logger.warn('ANTHROPIC_API_KEY missing — falling back to mock LLM provider (shadow-safe)');
-    }
+    provider = buildProvider(cfg.llmProvider);
   }
   return provider;
+}
+
+function buildProvider(name: LlmProviderName): LlmProvider {
+  const cfg = getConfig();
+  if (name === 'mock') return new MockLlmProvider();
+  if (name === 'gemini') {
+    if (cfg.geminiApiKey) return new GeminiProvider();
+    logger.warn('GEMINI_API_KEY missing — falling back to mock LLM provider (shadow-safe)');
+    return new MockLlmProvider();
+  }
+  if (cfg.anthropicApiKey) return new AnthropicProvider();
+  logger.warn('ANTHROPIC_API_KEY missing — falling back to mock LLM provider (shadow-safe)');
+  return new MockLlmProvider();
 }
 
 export function setLlmProvider(p: LlmProvider | null): void {

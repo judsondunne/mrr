@@ -39,6 +39,7 @@ const {
   signWebhookPayload,
 } = await import('../pipeline/outreach/webhooks');
 const { isSuppressed } = await import('../pipeline/outreach/suppression');
+const { buildUnsubscribeUrl } = await import('../pipeline/outreach/unsubscribe');
 
 const NO_SEND = process.argv.includes('--no-send');
 
@@ -104,6 +105,54 @@ async function main(): Promise<void> {
   await runMigrations();
   const db = await getDb();
 
+  // 1b. A previous canary's opt-out step suppresses this address and marks its
+  // company NEVER_CONTACT — both correct, and both would make this canary
+  // unrunnable a second time. Snapshot whether a suppression existed BEFORE
+  // this run so the exact prior state can be restored at the end: a real
+  // opt-out stays, a canary's own synthetic one does not.
+  const companyKeyForTarget = target.split('@')[1] ?? target;
+  const priorSuppression = await db.query<{ reason: string; notes: string | null }>(
+    'SELECT reason, notes FROM suppression_list WHERE email = $1',
+    [target],
+  );
+  const wasSuppressedBefore = priorSuppression.rows.length > 0;
+  const priorCompany = await db.query<{
+    contact_state: string;
+    last_contacted_at: string | null;
+    cooldown_until: string | null;
+  }>(
+    'SELECT contact_state, last_contacted_at, cooldown_until FROM company_registry WHERE company_key = $1',
+    [companyKeyForTarget],
+  );
+  const companyExistedBefore = priorCompany.rows.length > 0;
+  const wasNeverContactBefore = priorCompany.rows[0]?.contact_state === 'NEVER_CONTACT';
+
+  // A previous run also recorded a CONTACT against this company, which starts
+  // the cross-campaign cooldown (COMPANY_COOLDOWN_DAYS) and would skip this
+  // run's send. That row is the canary's own, so it goes.
+  if (!NO_SEND && !wasNeverContactBefore) {
+    await db.query(
+      `UPDATE company_registry
+          SET last_contacted_at = NULL, cooldown_until = NULL, contact_state = 'AVAILABLE'
+        WHERE company_key = $1 AND contact_state <> 'NEVER_CONTACT'`,
+      [companyKeyForTarget],
+    );
+  }
+
+  if (wasSuppressedBefore && !NO_SEND) {
+    const note = priorSuppression.rows[0]?.notes ?? '';
+    // Only a canary's own opt-out is cleared. Anything else is a real person.
+    if (note.includes('opt-out in reply body')) {
+      await db.query('DELETE FROM suppression_list WHERE email = $1', [target]);
+      await db.query(
+        `UPDATE company_registry SET contact_state = 'AVAILABLE', cooldown_until = NULL
+          WHERE company_key = $1 AND contact_state = 'NEVER_CONTACT'`,
+        [companyKeyForTarget],
+      );
+      console.log('  (cleared the previous canary run\'s opt-out so this run can send)');
+    }
+  }
+
   // 2. Build the canary's own opportunity + campaign, tagged so teardown is
   //    exact and so no real evaluation can ever see these rows.
   const tag = `canary-${Date.now()}`;
@@ -145,14 +194,22 @@ async function main(): Promise<void> {
       campaignId,
       prospectId,
       `Round-trip canary ${tag}`,
+      // The body must satisfy the SAME compliance gate every real message does:
+      // a "--" footer, the sender's postal address, and a working signed
+      // one-step unsubscribe link. Hand-writing a body without them is what a
+      // canary should catch, so this composes one that passes honestly rather
+      // than relaxing the gate.
       [
         'This is an automated round-trip canary from the MRR validator.',
         '',
         'Nothing is being offered and no product exists. Reply to this message to',
         'verify the inbound half of the pipeline.',
         '',
-        `-- ${cfg.senderCompany}`,
+        '--',
+        cfg.senderCompany,
         cfg.senderPostalAddress,
+        '',
+        `Unsubscribe: ${buildUnsubscribeUrl(target)}`,
       ].join('\n'),
       idempotencyKey,
     ],
@@ -241,7 +298,7 @@ async function main(): Promise<void> {
     const payload = JSON.stringify({
       type: 'email.inbound',
       data: {
-        email_id: `canary-in-${eventSuffix}`,
+        email_id: `canary-in-${tag}-${eventSuffix}`,
         from: target,
         to: [cfg.senderEmail],
         subject: `Re: Round-trip canary ${tag}`,
@@ -249,7 +306,7 @@ async function main(): Promise<void> {
         headers: {},
       },
     });
-    const eventId = `canary-inbound-${eventSuffix}`;
+    const eventId = `canary-inbound-${tag}-${eventSuffix}`;
     const ts = String(Math.floor(Date.now() / 1000));
     const result = await handleInboundWebhook(payload, {
       'svix-id': eventId,
@@ -360,10 +417,42 @@ async function main(): Promise<void> {
   );
   check('canary rows removed', Number(left.rows[0]?.n ?? 0) === 0, 'nothing left for the gate to count');
 
-  // The suppression entry is deliberately LEFT IN PLACE: an address that asked
-  // to be removed stays removed, even a test one.
-  console.log('');
-  console.log('  note: the opt-out suppression for the target address was kept on purpose.');
+  // Restore the suppression state this run found, so the canary is repeatable
+  // and leaves no trace. A suppression that existed BEFORE this run is a real
+  // opt-out and is put back exactly as it was.
+  if (!wasSuppressedBefore) {
+    await db.query('DELETE FROM suppression_list WHERE email = $1', [target]);
+  }
+  if (!wasNeverContactBefore) {
+    // The synthetic opt-out marks the whole company NEVER_CONTACT, terminally.
+    // For a gmail test address that company key is `gmail.com`, which would
+    // block every future prospect at that domain — so it is undone here.
+    await db.query(
+      `UPDATE company_registry SET contact_state = 'AVAILABLE', cooldown_until = NULL
+        WHERE company_key = $1 AND contact_state = 'NEVER_CONTACT'`,
+      [companyKeyForTarget],
+    );
+  }
+  // The company row, too: if the canary created it, it goes; if it predates
+  // the canary, its contact history is put back.
+  if (!companyExistedBefore) {
+    await db.query('DELETE FROM company_registry WHERE company_key = $1', [companyKeyForTarget]);
+  } else if (!wasNeverContactBefore) {
+    await db.query(
+      `UPDATE company_registry SET last_contacted_at = $2, cooldown_until = $3
+        WHERE company_key = $1 AND contact_state <> 'NEVER_CONTACT'`,
+      [companyKeyForTarget, priorCompany.rows[0]?.last_contacted_at ?? null, priorCompany.rows[0]?.cooldown_until ?? null],
+    );
+  }
+
+  const stillSuppressed = await isSuppressed(target);
+  check(
+    'suppression state restored',
+    stillSuppressed === wasSuppressedBefore,
+    wasSuppressedBefore
+      ? 'a pre-existing opt-out was left in place, as it must be'
+      : 'the canary left no suppression behind, so it can run again',
+  );
 
   const failed = checks.filter((c) => !c.ok);
   console.log('');

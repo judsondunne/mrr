@@ -57,7 +57,7 @@ function parseWarmup(raw: string): Array<{ throughDay: number; maxPerDay: number
 // --- shape -------------------------------------------------------------------
 
 export type DatabaseMode = 'auto' | 'postgres' | 'pglite';
-export type LlmProviderName = 'anthropic' | 'mock';
+export type LlmProviderName = 'anthropic' | 'gemini' | 'mock';
 export type SearchProviderName = 'brave' | 'mock';
 export type EmailProviderName = 'resend' | 'mock';
 
@@ -72,6 +72,7 @@ export interface Config {
 
   llmProvider: LlmProviderName;
   anthropicApiKey: string;
+  geminiApiKey: string;
   llmFast: string;
   llmReasoner: string;
   llmFastInputCostPerMTok: number;
@@ -251,6 +252,7 @@ function build(): Config {
 
     llmProvider: (str('LLM_PROVIDER', 'anthropic') as LlmProviderName),
     anthropicApiKey: str('ANTHROPIC_API_KEY'),
+    geminiApiKey: str('GEMINI_API_KEY'),
     llmFast: str('LLM_FAST', 'claude-haiku-4-5'),
     llmReasoner: str('LLM_REASONER', 'claude-sonnet-5'),
     llmFastInputCostPerMTok: num('LLM_FAST_INPUT_COST_PER_MTOK', 1.0),
