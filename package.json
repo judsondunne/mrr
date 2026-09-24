@@ -26,7 +26,9 @@
     "test:chaos": "vitest run tests/chaos",
     "canary:email": "tsx src/scripts/canary-email.ts",
     "canary:research": "tsx src/scripts/canary-research.ts",
-    "providers:health": "tsx src/scripts/providers-health.ts"
+    "providers:health": "tsx src/scripts/providers-health.ts",
+    "discover:b2b": "tsx src/scripts/discover-b2b.ts",
+    "deep:dive": "tsx src/scripts/deep-dive.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.127.0",
