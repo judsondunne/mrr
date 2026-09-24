@@ -38,7 +38,7 @@ loadDotenv({ path: '.env', quiet: true });
 process.env.OUTREACH_ENABLED = 'false';
 
 const { getConfig } = await import('../lib/config');
-const { getDb, closeDb } = await import('../lib/db');
+const { closeDb } = await import('../lib/db');
 const { runMigrations } = await import('../lib/migrate');
 const { search } = await import('../lib/search/index');
 const { politeFetch } = await import('../lib/fetch');
@@ -300,7 +300,8 @@ async function main(): Promise<void> {
   const snap = await getBudgetSnapshot();
   console.log('\n' + '='.repeat(78));
   console.log(
-    `  ${searches} searches, ${fetched} pages fetched, ${findings.length} verified findings, ` +
+    `  ${searches} searches, ${fetched} pages fetched, ${notFetched} unfetchable (robots/404 -> snippet), ` +
+      `${findings.length} verified findings, ` +
       `${discarded} discarded (vendor marketing / unverifiable quote)`,
   );
   console.log(

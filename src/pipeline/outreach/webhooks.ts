@@ -159,14 +159,20 @@ function safeJsonParse(raw: string): unknown {
 // --- idempotency -------------------------------------------------------------
 
 /** Returns false when this event id has already been recorded. */
-async function claimEvent(id: string, provider: string, eventType: string, payload: unknown): Promise<boolean> {
+async function claimEvent(
+  id: string,
+  provider: string,
+  eventType: string,
+  payload: unknown,
+  origin: EventOrigin = 'PROVIDER',
+): Promise<boolean> {
   const db = await getDb();
   const res = await db.query<{ id: string }>(
-    `INSERT INTO webhook_events (id, provider, event_type, payload_json)
-     VALUES ($1,$2,$3,$4)
+    `INSERT INTO webhook_events (id, provider, event_type, payload_json, origin)
+     VALUES ($1,$2,$3,$4,$5)
      ON CONFLICT (id) DO NOTHING
      RETURNING id`,
-    [id, provider, eventType, JSON.stringify(payload ?? {})],
+    [id, provider, eventType, JSON.stringify(payload ?? {}), origin],
   );
   return res.rowCount === 1;
 }
@@ -215,10 +221,26 @@ export function classifyBounce(bounce: { type?: string; subType?: string; messag
   return 'SOFT';
 }
 
+/**
+ * Where a provider event came from.
+ *
+ * `PROVIDER` is the real Resend webhook arriving over HTTP. `TEST` is an event
+ * this machine generated — a canary, a fixture, a simulation.
+ *
+ * The distinction is load-bearing and cannot be derived from the payload: a
+ * locally generated event is signed with the same secret, so it is
+ * cryptographically identical to a real one. Without an explicit origin, a
+ * canary could mark a REAL prospect's message DELIVERED and a campaign would
+ * ramp on delivery that never happened.
+ */
+export type EventOrigin = 'PROVIDER' | 'TEST';
+
 export async function handleDeliveryWebhook(
   rawBody: string,
   headers: Record<string, string>,
+  opts: { origin?: EventOrigin } = {},
 ): Promise<WebhookResult> {
+  const origin: EventOrigin = opts.origin ?? 'PROVIDER';
   const cfg = getConfig();
   const verification = verifyWebhookSignature(rawBody, headers, cfg.resendWebhookSecret);
   if (!verification.ok) {
@@ -233,7 +255,7 @@ export async function handleDeliveryWebhook(
   const event = parsed.data;
   const eventId = verification.eventId ?? sha256(rawBody);
 
-  if (!(await claimEvent(eventId, 'resend', event.type, event))) {
+  if (!(await claimEvent(eventId, 'resend', event.type, event, origin))) {
     logger.info('duplicate delivery webhook ignored', { eventId, type: event.type });
     return { accepted: true, duplicate: true, eventType: event.type };
   }
@@ -242,6 +264,36 @@ export async function handleDeliveryWebhook(
   const message = providerMessageId ? await findMessageByProviderId(providerMessageId) : null;
   const recipient = message?.contact_email ?? parseAddress(event.data.to ?? null);
   const db = await getDb();
+
+  // A locally generated event may only touch a campaign marked as a test.
+  // Delivery state for real outreach originates from Resend or from nowhere.
+  if (origin === 'TEST' && message) {
+    const owning = await one<{ is_test: boolean }>(
+      'SELECT is_test FROM campaigns WHERE id = $1',
+      [message.campaign_id],
+    );
+    if (owning?.is_test !== true) {
+      logger.error('refused a locally generated delivery event for a real campaign', {
+        eventId,
+        type: event.type,
+        campaignId: message.campaign_id,
+      });
+      await recordAudit({
+        entityType: 'campaign',
+        entityId: message.campaign_id,
+        eventType: 'ERROR',
+        actor: 'webhooks:delivery',
+        reason: 'refused a simulated delivery event for a non-test campaign',
+        detail: { eventId, eventType: event.type },
+      });
+      return {
+        accepted: false,
+        duplicate: false,
+        eventType: event.type,
+        detail: 'TEST_EVENT_REJECTED_FOR_REAL_CAMPAIGN',
+      };
+    }
+  }
 
   switch (event.type) {
     case 'email.delivered': {
@@ -407,7 +459,9 @@ const INBOUND_EMPTY: InboundResult = {
 export async function handleInboundWebhook(
   rawBody: string,
   headers: Record<string, string>,
+  opts: { origin?: EventOrigin } = {},
 ): Promise<InboundResult> {
+  const origin: EventOrigin = opts.origin ?? 'PROVIDER';
   const cfg = getConfig();
   const verification = verifyWebhookSignature(rawBody, headers, cfg.resendInboundWebhookSecret);
   if (!verification.ok) {
@@ -420,7 +474,7 @@ export async function handleInboundWebhook(
   const event = parsed.data;
   const eventId = verification.eventId ?? sha256(rawBody);
 
-  if (!(await claimEvent(eventId, 'resend-inbound', event.type, event))) {
+  if (!(await claimEvent(eventId, 'resend-inbound', event.type, event, origin))) {
     logger.info('duplicate inbound webhook ignored', { eventId });
     return { ...INBOUND_EMPTY, accepted: true, duplicate: true };
   }

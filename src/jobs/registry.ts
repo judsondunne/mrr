@@ -53,6 +53,7 @@ import {
 } from '../autonomy/calibration';
 import { getBudgetReport, currentPeriod } from '../autonomy/budget';
 import { getRuntimeState, getSubsystemHealth } from '../autonomy/runtime';
+import { outreachPermitted } from '../autonomy/readiness';
 
 /** How many discovery query families one daily cadence may expand. */
 const DAILY_QUERY_EXPANSION_LIMIT = 5;
@@ -300,6 +301,16 @@ const JOBS: Record<JobName, JobFn> = {
 
   send_due_messages: async () => {
     requireOutreach('send_due_messages');
+
+    // The readiness gate is machine-enforced here, at the one place real mail
+    // can leave. Configuration proving intent is not enough: this refuses to
+    // send until a genuine Resend delivery event and a genuine inbound reply
+    // have actually been seen, because a system that cannot hear an answer
+    // cannot validate anything and should not be cold-emailing strangers.
+    const permitted = await outreachPermitted();
+    if (!permitted.allowed) {
+      throw new SafetyError(`send_due_messages blocked: ${permitted.reason}`);
+    }
     const results = await sendDueMessages();
     // Auto-replies are kept off the campaign batch quota (answering someone
     // who wrote to us is not cold outreach), so they need flushing here or a

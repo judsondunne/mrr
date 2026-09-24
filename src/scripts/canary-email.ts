@@ -167,8 +167,8 @@ async function main(): Promise<void> {
   );
   await db.query(
     `INSERT INTO campaigns
-       (id, opportunity_id, state, offer_name, price_monthly, landing_slug, started_at, target_count)
-     VALUES ($1,$2,'SCALING','Email Canary',19,$3, now(), 1)`,
+       (id, opportunity_id, state, offer_name, price_monthly, landing_slug, started_at, target_count, is_test)
+     VALUES ($1,$2,'SCALING','Email Canary',19,$3, now(), 1, true)`,
     [campaignId, opportunityId, tag],
   );
   const domain = target.split('@')[1] ?? 'invalid.example';
@@ -269,8 +269,8 @@ async function main(): Promise<void> {
       'svix-signature': signWebhookPayload(cfg.resendWebhookSecret, eventId, ts, payload),
     };
 
-    const first = await handleDeliveryWebhook(payload, headers);
-    const replay = await handleDeliveryWebhook(payload, headers);
+    const first = await handleDeliveryWebhook(payload, headers, { origin: 'TEST' });
+    const replay = await handleDeliveryWebhook(payload, headers, { origin: 'TEST' });
     check('delivery webhook processed', first.accepted && !first.duplicate, `eventType=${first.eventType}`);
     check('duplicate delivery webhook ignored', replay.duplicate, 'second identical event was a no-op');
 
@@ -308,17 +308,25 @@ async function main(): Promise<void> {
     });
     const eventId = `canary-inbound-${tag}-${eventSuffix}`;
     const ts = String(Math.floor(Date.now() / 1000));
-    const result = await handleInboundWebhook(payload, {
-      'svix-id': eventId,
-      'svix-timestamp': ts,
-      'svix-signature': signWebhookPayload(cfg.resendInboundWebhookSecret, eventId, ts, payload),
-    });
+    const result = await handleInboundWebhook(
+      payload,
+      {
+        'svix-id': eventId,
+        'svix-timestamp': ts,
+        'svix-signature': signWebhookPayload(cfg.resendInboundWebhookSecret, eventId, ts, payload),
+      },
+      { origin: 'TEST' },
+    );
     // Replay the SAME event: one logical inbound message only.
-    const again = await handleInboundWebhook(payload, {
-      'svix-id': eventId,
-      'svix-timestamp': ts,
-      'svix-signature': signWebhookPayload(cfg.resendInboundWebhookSecret, eventId, ts, payload),
-    });
+    const again = await handleInboundWebhook(
+      payload,
+      {
+        'svix-id': eventId,
+        'svix-timestamp': ts,
+        'svix-signature': signWebhookPayload(cfg.resendInboundWebhookSecret, eventId, ts, payload),
+      },
+      { origin: 'TEST' },
+    );
     check(
       `inbound accepted: ${label}`,
       result.accepted && !result.duplicate,

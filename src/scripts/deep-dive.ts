@@ -106,13 +106,6 @@ interface Cluster {
   findings: Array<{ url: string; quote: string; currentSpendSignal: string; painStrength: number }>;
 }
 
-function hostOf(url: string): string {
-  try {
-    return new URL(url).hostname.replace(/^www\./, '');
-  } catch {
-    return url.slice(0, 40);
-  }
-}
 const norm = (s: string): string => s.toLowerCase().replace(/[\s ]+/g, ' ').replace(/[""'']/g, "'").trim();
 
 async function fetchText(url: string, cap = 9000): Promise<string | null> {
@@ -156,7 +149,6 @@ async function main(): Promise<void> {
 
   for (const [idx, cluster] of clusters.entries()) {
     console.log(`\n### ${idx + 1}. [${cluster.vertical}] ${cluster.workflow.slice(0, 80)}`);
-    const topic = `${cluster.vertical} ${cluster.workflow}`.slice(0, 120);
 
     // --- incumbents and their real prices ---------------------------------
     const incumbents: Array<z.infer<typeof Incumbent> & { url: string; priceFound: string[] }> = [];
