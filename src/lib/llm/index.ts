@@ -14,7 +14,7 @@ import { getConfig, type LlmProviderName } from '../config';
 import { getDb } from '../db';
 import { sha256 } from '../hash';
 import { createLogger } from '../logger';
-import { assertBudget, estimateLlmCost, recordCosts } from '../cost';
+import { assertBudget, estimateLlmCost, recordCosts, type CostProvider } from '../cost';
 import { AnthropicProvider } from './anthropic';
 import { GeminiProvider } from './gemini';
 import { MockLlmProvider } from './mock';
@@ -105,7 +105,14 @@ export async function llmComplete<T>(req: LlmRequest<T>): Promise<LlmResponse<T>
   const fenced = req.untrusted ? { ...req, user: fenceUntrusted(req) } : req;
 
   const res = await completeWithFallback(fenced);
-  const costProvider = res.model.startsWith('mock:') ? 'mock' : 'anthropic';
+  // Attribute spend to the provider that actually answered. This was hardcoded
+  // to 'anthropic', so a Gemini run reported its cost under the wrong vendor
+  // and the ledger could not be reconciled against a real bill.
+  const costProvider: CostProvider = res.model.startsWith('mock:')
+    ? 'mock'
+    : /^gemini/i.test(res.model)
+      ? 'gemini'
+      : 'anthropic';
 
   await recordCosts([
     {

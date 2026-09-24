@@ -13,7 +13,13 @@ import { createLogger } from './logger';
 
 const logger = createLogger('cost');
 
-export type CostProvider = 'anthropic' | 'brave' | 'resend' | 'mock';
+export type CostProvider = 'anthropic' | 'gemini' | 'brave' | 'resend' | 'mock';
+
+/**
+ * Every provider whose spend counts against MONTHLY_LLM_BUDGET_USD. A model
+ * vendor added here but missing from this list would be invisible to the cap.
+ */
+export const LLM_COST_PROVIDERS: readonly CostProvider[] = ['anthropic', 'gemini'];
 export type ResourceType =
   | 'LLM_INPUT_TOKENS'
   | 'LLM_OUTPUT_TOKENS'
@@ -120,7 +126,7 @@ export async function getBudgetSnapshot(): Promise<BudgetSnapshot> {
   const cfg = getConfig();
   const ms = monthStart();
   const [llmSpent, searchSpent, emailsToday, campaignsThisWeek] = await Promise.all([
-    sumCost(ms, ['anthropic']),
+    sumCost(ms, [...LLM_COST_PROVIDERS]),
     sumCost(ms, ['brave']),
     countRows(
       `SELECT COUNT(*) AS n FROM messages

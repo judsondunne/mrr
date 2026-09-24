@@ -33,6 +33,22 @@ const RESETTABLE_ENV = [
   'ADMIN_TOKEN', 'CRON_SECRET', 'SENDER_EMAIL', 'SENDER_COMPANY',
   'SENDER_POSTAL_ADDRESS', 'SENDING_DOMAIN', 'OWNER_NAME', 'OWNER_NOTIFICATION_EMAIL',
   'RESEND_API_KEY', 'RESEND_WEBHOOK_SECRET', 'RESEND_INBOUND_WEBHOOK_SECRET',
+  'OWNER_TEST_EMAIL',
+  // Provider identity and pricing. `src/lib/config.ts` loads the developer's
+  // real .env, so without clearing these a machine configured for Gemini runs
+  // the suite against Gemini's model names and price list and fails tests that
+  // assert the documented defaults. The suite must not depend on who is
+  // running it.
+  'LLM_PROVIDER', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY',
+  'LLM_FAST', 'LLM_REASONER',
+  'LLM_FAST_INPUT_COST_PER_MTOK', 'LLM_FAST_OUTPUT_COST_PER_MTOK',
+  'LLM_REASONER_INPUT_COST_PER_MTOK', 'LLM_REASONER_OUTPUT_COST_PER_MTOK',
+  'LLM_FALLBACK_PROVIDER', 'LLM_FAST_FALLBACK', 'LLM_REASONER_FALLBACK',
+  'SEARCH_PROVIDER', 'BRAVE_SEARCH_API_KEY', 'BRAVE_SEARCH_COST_PER_CALL_USD',
+  'EMAIL_PROVIDER',
+  'AUTO_START', 'SUPERVISOR_INTERVAL_MINUTES',
+  'COMPANY_COOLDOWN_DAYS', 'NEGATIVE_REPLY_COOLDOWN_DAYS',
+  'CAMPAIGN_RAMP_STEPS', 'DOMAIN_WARMUP_SCHEDULE',
 ] as const;
 
 export interface TestContext {
