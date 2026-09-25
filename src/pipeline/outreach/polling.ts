@@ -19,7 +19,7 @@ import { getDb, one } from '../../lib/db';
 import { newId } from '../../lib/hash';
 import { createLogger, errorToFields } from '../../lib/logger';
 import { recordAudit } from '../../lib/audit';
-import { getSentEmail, listInboundEmails, type ResendLastEvent } from '../../lib/email/resend-api';
+import { getSentEmail, listInboundIds, getInboundEmail, type InboundEmail, type ResendLastEvent } from '../../lib/email/resend-api';
 import { suppress, isSuppressed, companyKeyFor, normalizeEmail } from './suppression';
 import { classifyReply } from './classify';
 import { deterministicIntent, reconcile as reconcileIntent, IntentExtraction } from './intent';
@@ -228,11 +228,21 @@ export async function pollInbound(limit = 50): Promise<InboundPollResult> {
   const cfg = getConfig();
   const out: InboundPollResult = { fetched: 0, claimed: 0, processed: 0, matched: 0, unmatched: 0, suppressed: 0 };
 
-  const inbound = await listInboundEmails(limit);
-  out.fetched = inbound.length;
+  // Enumerate first, then retrieve only what has not been seen. The list
+  // endpoint carries no body or threading headers, so retrieval is required —
+  // but retrieving mail we already processed would be pure waste.
+  const summaries = await listInboundIds(limit);
+  out.fetched = summaries.length;
 
-  for (const mail of inbound) {
-    if (!mail.id) continue;
+  for (const summary of summaries) {
+    const already = await one<{ id: string }>(
+      'SELECT id FROM inbound_emails WHERE provider_inbound_id = $1',
+      [summary.id],
+    );
+    if (already) continue;
+
+    const mail = await getInboundEmail(summary.id);
+    if (!mail) continue;
 
     // Claim it. The unique index on provider_inbound_id is what makes polling
     // idempotent; a second sighting inserts nothing.
@@ -278,7 +288,7 @@ export async function pollInbound(limit = 50): Promise<InboundPollResult> {
 
 async function processInbound(
   localId: string,
-  mail: Awaited<ReturnType<typeof listInboundEmails>>[number],
+  mail: InboundEmail,
   out: InboundPollResult,
 ): Promise<void> {
   const db = await getDb();
@@ -464,12 +474,22 @@ export function stripQuotedReply(text: string): string {
   if (!text) return '';
   const lines = text.split(/\r?\n/);
   const kept: string[] = [];
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? '';
     if (/^\s*>/.test(line)) break;
-    if (/^\s*On .+ wrote:\s*$/i.test(line)) break;
     if (/^\s*-{2,}\s*Original Message\s*-{2,}/i.test(line)) break;
     if (/^\s*From:\s.+@/i.test(line)) break;
     if (/^\s*--\s*$/.test(line)) break; // signature delimiter
+
+    // Reply attribution. Gmail wraps it across two lines — "On <date> Name
+    // <addr>" then "wrote:" — so matching only the single-line form left our
+    // own sending address in the stored body, where the classifier would read
+    // it as the prospect's words.
+    if (/^\s*On\s+.+wrote:/i.test(line)) break;
+    if (/^\s*On\s+.*\d{4}.*$/i.test(line)) {
+      const ahead = lines.slice(i + 1, i + 4).join(' ');
+      if (/wrote:/i.test(ahead)) break;
+    }
     kept.push(line);
   }
   const body = kept.join('\n').trim();

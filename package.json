@@ -30,7 +30,8 @@
     "discover:b2b": "tsx src/scripts/discover-b2b.ts",
     "deep:dive": "tsx src/scripts/deep-dive.ts",
     "readiness": "tsx src/scripts/readiness.ts",
-    "canary:polling": "tsx src/scripts/canary-polling.ts"
+    "canary:polling": "tsx src/scripts/canary-polling.ts",
+    "import:research": "tsx src/scripts/import-research.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.127.0",

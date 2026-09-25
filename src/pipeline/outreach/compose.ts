@@ -25,6 +25,8 @@ import {
   buildUnsubscribeUrl,
   extractUnsubscribeToken,
   unsubscribeHeaders,
+  unsubscribeIsServable,
+  mailtoUnsubscribe,
   verifyUnsubscribeToken,
 } from './unsubscribe';
 import { normalizeEmail } from './suppression';
@@ -194,7 +196,10 @@ export function buildFooter(email: string, cfg: Config, evidenceUrl: string | nu
   // the poller genuinely acts on within minutes. The signed link stays for
   // clients that surface List-Unsubscribe.
   lines.push("If you'd prefer I don't email you again, just reply \"unsubscribe\".");
-  lines.push(`Unsubscribe in one click: ${buildUnsubscribeUrl(email)}`);
+  // Only offer a link this deployment can actually serve.
+  if (unsubscribeIsServable()) {
+    lines.push(`Unsubscribe in one click: ${buildUnsubscribeUrl(email)}`);
+  }
   return lines.join('\n');
 }
 
@@ -217,6 +222,39 @@ export function buildSubject(prospect: ProspectContext, offer: OfferContext): st
  * The initial outreach message. The frame is fixed; only the bracketed facts
  * come from data, and every one of them is already stored and verified.
  */
+/**
+ * Whether a generated observation is safe to put in front of a stranger.
+ *
+ * Rejects the failure mode seen in practice: a fragment of scraped marketing
+ * copy naming a third party, or a claim about results we cannot stand behind.
+ * When in doubt the email simply opens without it.
+ */
+export function isUsableObservation(observation: string): boolean {
+  const o = (observation ?? '').trim();
+  if (o.length < 12 || o.length > 180) return false;
+
+  // Internal vocabulary. The qualification reason is a diagnostic written for
+  // us, and it leaked verbatim into a stranger's inbox as "I noticed the page
+  // shows 3 ICP signals and a live storefront".
+  if (/\b(icp|signal|storefront|qualification|score|crawl|fetch|evidence|prospect|page shows)\b/i.test(o)) {
+    return false;
+  }
+  // Scraped navigation and marketing copy, which describes what they sell
+  // rather than anything we actually noticed.
+  if (/\b(keeping your|our services|we offer|contact us|learn more|get started|home about)\b/i.test(o)) {
+    return false;
+  }
+  // Somebody else's testimonial. Repeating a customer's praise back as our own
+  // observation misrepresents where it came from.
+  if (/\b(gives me|love working|highly recommend|great to work with|amazing|best decision)\b/i.test(o)) {
+    return false;
+  }
+  // A results claim or a third party we cannot attribute.
+  if (/\b(took their|grew|increased|boosted|ranked|from \w+ (to|on))\b/i.test(o)) return false;
+  if (/\b(first|second|third|fourth|fifth|ninth|tenth)\b/i.test(o)) return false;
+  return true;
+}
+
 export function assembleInitialBody(params: {
   observation: string;
   offer: OfferContext;
@@ -226,25 +264,34 @@ export function assembleInitialBody(params: {
   const { observation, offer, prospect, cfg } = params;
   const price = formatPrice(offer.priceMonthly);
   const ecosystem = displayEcosystem(offer.copy.ecosystem);
+  const lines: string[] = ['Hi —', ''];
 
-  return [
-    'Hi —',
+  // Personalization is included only when it reads as a fact about THIS
+  // business. A weak observation produced sentences like "I noticed alex took
+  // their brand from ninth to third" — scraped marketing copy about somebody
+  // else. A plain opening is better than a wrong personal claim.
+  if (isUsableObservation(observation)) {
+    lines.push(`I noticed ${observation}.`, '');
+  }
+
+  lines.push(
+    `I'm validating a small ${ecosystem} tool for ${offer.copy.workflow}.`,
     '',
-    `I noticed ${observation}.`,
+    // Ask before pitching. The objective is to learn whether the problem is
+    // real, not to book an install from a stranger who has said nothing yet.
+    'Before I build anything I am trying to find out whether this is actually a',
+    'problem worth solving, so one question:',
     '',
-    `I'm validating a small ${ecosystem} app specifically for ${offer.copy.workflow}.`,
-    `It would ${offer.copy.outcome}, without ${offer.copy.incumbentComplexity}.`,
+    `How do you handle ${offer.copy.workflow} today — and roughly how long does it take?`,
     '',
-    `I'm planning to price it at ${price}/month.`,
-    '',
-    "If I had this ready for your store, would you want me to send you the install when the pilot opens?",
-    '',
-    offer.landingUrl,
+    `If it is a real cost for you, I am planning to price the tool at ${price}/month`,
+    'and looking for a few early pilot users. Nothing is built yet.',
     '',
     `— ${senderName(cfg)}`,
     '',
     buildFooter(prospect.contactEmail, cfg, prospect.publicEvidenceUrl),
-  ].join('\n');
+  );
+  return lines.join('\n');
 }
 
 export function assembleFollowupBody(params: {
@@ -302,7 +349,9 @@ export function withHeaders(to: string, subject: string, text: string): Composed
     subject,
     text,
     headers: {
-      ...unsubscribeHeaders(unsubscribeUrl),
+      // RFC 8058 allows a mailto opt-out. With no public endpoint that is the
+      // only form a recipient's client can act on that we can honour.
+      ...unsubscribeHeaders(unsubscribeIsServable() ? unsubscribeUrl : (mailtoUnsubscribe() ?? unsubscribeUrl)),
       'X-Entity-Ref-ID': 'mrr-validator-outreach',
     },
     unsubscribeUrl,
@@ -389,7 +438,11 @@ export function validateCompliance(message: ComposedMessage, cfg: Config = getCo
   // --- working one-step opt-out ---
   const token = extractUnsubscribeToken(text);
   if (!token) {
-    violations.push('MISSING_UNSUBSCRIBE_LINK');
+    // A reply-based opt-out is a real, working mechanism when no endpoint can
+    // serve a click: the poller suppresses on it within minutes. It is only
+    // acceptable INSTEAD of a link, never as well as a broken one.
+    const replyOptOut = /reply\s+["“']?unsubscribe/i.test(text);
+    if (!(replyOptOut && !unsubscribeIsServable())) violations.push('MISSING_UNSUBSCRIBE_LINK');
   } else {
     const signedFor = verifyUnsubscribeToken(token);
     if (!signedFor) violations.push('UNSUBSCRIBE_TOKEN_INVALID');
@@ -399,9 +452,20 @@ export function validateCompliance(message: ComposedMessage, cfg: Config = getCo
   const headers = message.headers ?? {};
   const listUnsub = headers['List-Unsubscribe'];
   const listUnsubPost = headers['List-Unsubscribe-Post'];
-  if (!listUnsub || !/^<https?:\/\/\S+>$/.test(listUnsub)) violations.push('MISSING_LIST_UNSUBSCRIBE_HEADER');
+
+  // RFC 8058 permits either form. https is required when a public endpoint can
+  // serve the click; with no such endpoint, mailto is the only form that can
+  // actually be honoured, and the inbound poller honours it within minutes.
+  const servable = unsubscribeIsServable();
+  const headerOk = servable
+    ? Boolean(listUnsub && /^<https?:\/\/\S+>$/.test(listUnsub))
+    : Boolean(listUnsub && /^<(mailto:|https?:\/\/)\S+>$/.test(listUnsub));
+  if (!headerOk) violations.push('MISSING_LIST_UNSUBSCRIBE_HEADER');
   if (listUnsubPost !== 'List-Unsubscribe=One-Click') violations.push('MISSING_LIST_UNSUBSCRIBE_POST_HEADER');
-  if (message.unsubscribeUrl && listUnsub && listUnsub !== `<${message.unsubscribeUrl}>`) {
+
+  // The header and the body must agree — but only when the body carries a URL
+  // at all. A mailto header alongside a reply-based body opt-out is coherent.
+  if (servable && message.unsubscribeUrl && listUnsub && listUnsub !== `<${message.unsubscribeUrl}>`) {
     violations.push('LIST_UNSUBSCRIBE_HEADER_MISMATCH');
   }
 

@@ -25,6 +25,7 @@ import {
   strongestPerCompany,
   type CompanySignal,
 } from '../../src/pipeline/validation/ladder';
+import { stripQuotedReply } from '../../src/pipeline/outreach/polling';
 
 function extraction(intent: ReplyIntent, quote: string, over: Partial<IntentExtraction> = {}): IntentExtraction {
   return {
@@ -262,5 +263,36 @@ describe('a model classification is capped by the literal words', () => {
     const text = 'We spend about four hours a week on this.';
     expect(quoteAppears('we would pay anything', text)).toBe(false);
     expect(quoteAppears('four hours a week', text)).toBe(true);
+  });
+});
+
+// --- quoted history ----------------------------------------------------------
+
+describe('quoted history is removed before classification', () => {
+  it('drops a Gmail attribution that wraps across two lines', () => {
+    const reply = [
+      'TEST INTERESTED',
+      '',
+      'On Thu, Sep 24, 2026 at 9:31 PM Judson Dunne <judson@mail.judsondunne.com>',
+      'wrote:',
+      '',
+      '> Automated polling canary from the MRR validator.',
+      '> We proposed $300/month.',
+    ].join('\n');
+    const body = stripQuotedReply(reply);
+    expect(body).toBe('TEST INTERESTED');
+    // Our own outbound copy must not survive: a price WE proposed, read back
+    // as the prospect's words, would manufacture willingness to pay.
+    expect(body).not.toMatch(/judson@mail\.judsondunne\.com/);
+    expect(body).not.toMatch(/\$300/);
+  });
+
+  it('drops a single-line attribution and a quote block', () => {
+    expect(stripQuotedReply('Yes please.\n\nOn Mon, Jan 1 2026, X wrote:\n> old')).toBe('Yes please.');
+    expect(stripQuotedReply('No thanks.\n> quoted')).toBe('No thanks.');
+  });
+
+  it('keeps a reply that merely mentions the word "on"', () => {
+    expect(stripQuotedReply('We are on it, send details.')).toBe('We are on it, send details.');
   });
 });

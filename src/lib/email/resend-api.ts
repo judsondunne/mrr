@@ -133,17 +133,40 @@ export async function getSentEmail(id: string): Promise<SentEmail | null> {
 }
 
 /**
- * Inbound mail waiting in the Resend inbox.
+ * Ids of inbound mail waiting in the Resend inbox, newest first.
  *
- * Resend returns newest-first; callers de-duplicate on `id`, which is what
- * makes repeated polling safe.
+ * The LIST endpoint returns metadata only — no body, no In-Reply-To. The body
+ * and threading headers come from retrieving each message individually, so
+ * enumeration and retrieval are deliberately separate: it lets the caller skip
+ * retrieving anything it has already processed.
  */
-export async function listInboundEmails(limit = 50): Promise<InboundEmail[]> {
+export async function listInboundIds(limit = 50): Promise<Array<{ id: string; from: string; subject: string }>> {
   const raw = await call<{ data?: Array<Record<string, unknown>> }>(
     `/emails/inbound?limit=${Math.max(1, Math.min(100, limit))}`,
   );
-  const rows = raw.data ?? [];
-  return rows.map((r) => {
+  return (raw.data ?? [])
+    .map((r) => ({
+      id: String(r.id ?? ''),
+      from: String(r.from ?? ''),
+      subject: String(r.subject ?? ''),
+    }))
+    .filter((r) => r.id !== '');
+}
+
+/** One inbound message in full: body, headers and threading references. */
+export async function getInboundEmail(id: string): Promise<InboundEmail | null> {
+  try {
+    const r = await call<Record<string, unknown>>(`/emails/inbound/${encodeURIComponent(id)}`);
+    return toInbound(r);
+  } catch (err) {
+    if (err instanceof ProviderError && !err.retryable) throw err;
+    logger.warn('could not retrieve inbound email', { id, err: String(err).slice(0, 140) });
+    return null;
+  }
+}
+
+function toInbound(r: Record<string, unknown>): InboundEmail {
+  {
     const headers = (r.headers ?? {}) as Record<string, unknown>;
     const header = (name: string): string | null => {
       for (const [k, v] of Object.entries(headers)) {
@@ -164,7 +187,7 @@ export async function listInboundEmails(limit = 50): Promise<InboundEmail[]> {
       references: asString(r.references) ?? header('References'),
       raw: r,
     };
-  });
+  }
 }
 
 /** True when the configured key can read, not merely send. */

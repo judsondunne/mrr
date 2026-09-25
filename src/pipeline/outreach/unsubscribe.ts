@@ -99,6 +99,27 @@ export function unsubscribeHeaders(url: string): Record<string, string> {
 }
 
 /**
+ * Whether this deployment can actually serve an unsubscribe click.
+ *
+ * In local validation mode there is no public server, so an https link is a
+ * promise we cannot keep — worse than offering none, because a recipient who
+ * clicks it and sees nothing has been ignored. RFC 8058 permits a mailto
+ * unsubscribe, and the inbound poller genuinely acts on one within minutes.
+ */
+export function unsubscribeIsServable(): boolean {
+  const base = getConfig().publicBaseUrl;
+  if (!base.startsWith('https://')) return false;
+  // A quick-tunnel hostname is gone the moment the tunnel restarts.
+  return !/trycloudflare\.com|loca\.lt/i.test(base);
+}
+
+/** The mailto opt-out used when no public endpoint can serve a click. */
+export function mailtoUnsubscribe(): string | null {
+  const inbox = getConfig().resendInboundAddress;
+  return inbox ? `mailto:${inbox}?subject=unsubscribe` : null;
+}
+
+/**
  * Verifies then suppresses. Never reveals whether an address was on file:
  * an invalid token simply returns ok:false with no address.
  */

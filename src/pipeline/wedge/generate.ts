@@ -230,6 +230,29 @@ const NARROWING_TOKENS: readonly string[] = [
 
 /** A recurring job is described with verbs like these, not with adjectives. */
 const CONCRETE_WORKFLOW_VERBS: readonly string[] = [
+  // Service-business work: assembling a report, reconciling an account,
+  // submitting a filing. Without these a professional-services wedge reads as
+  // vague however concrete it actually is.
+  'assemble',
+  'assembles',
+  'compile',
+  'compiles',
+  'prepare',
+  'prepares',
+  'submit',
+  'submits',
+  'file',
+  'files',
+  'renew',
+  'renews',
+  'dispatch',
+  'dispatches',
+  'log',
+  'logs',
+  'record',
+  'records',
+  'chase',
+  'chases',
   'set',
   'sets',
   'setting',
@@ -356,7 +379,14 @@ function words(s: string): string[] {
 /** Stem-ish containment: "wholesalers" matches the noun "wholesaler". */
 export function containsCustomerNoun(text: string): boolean {
   const tokens = words(text);
-  return tokens.some((t) => CUSTOMER_NOUNS.some((noun) => t === noun || t.startsWith(noun)));
+  return tokens.some((t) => {
+    // "agencies" -> "agency". The simple +s stem covers "wholesalers" but not
+    // the -ies plural, which silently rejected every agency, pharmacy, bakery
+    // and laundry ICP as though it named no concrete kind of business.
+    const candidates = [t];
+    if (t.length > 4 && t.endsWith('ies')) candidates.push(`${t.slice(0, -3)}y`);
+    return candidates.some((c) => CUSTOMER_NOUNS.some((noun) => c === noun || c.startsWith(noun)));
+  });
 }
 
 /**

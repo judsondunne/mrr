@@ -70,6 +70,17 @@ async function main(): Promise<void> {
      VALUES ($1,$2,'Canary Mailbox',$3,'shopify','QUALIFIED',$4,true,'US',$5,$5,'polling canary')`,
     [prId, oppId, domain, target, `https://${domain}/`]);
 
+  // A previous canary recorded a contact against this company, starting the
+  // cross-campaign cooldown that correctly protects real prospects. That row is
+  // the canary's own, so it is cleared for the owner's test mailbox only.
+  const companyKey = target.split('@')[1] ?? target;
+  await db.query(
+    `UPDATE company_registry
+        SET last_contacted_at = NULL, cooldown_until = NULL, contact_state = 'AVAILABLE'
+      WHERE company_key = $1 AND contact_state <> 'NEVER_CONTACT'`,
+    [companyKey],
+  );
+
   const msgId = newId('msg');
   await db.query(
     `INSERT INTO messages (id,campaign_id,prospect_id,direction,sequence_step,subject,body,status,idempotency_key)
@@ -114,6 +125,18 @@ async function main(): Promise<void> {
   const remote = await getSentEmail(pmid);
   check('reply-to points at the pollable inbox', !!remote?.replyTo?.length,
     remote?.replyTo?.join(', ') ?? 'NOT SET — replies would be unreadable (RESEND_INBOUND_ADDRESS unset)');
+
+  // --keep retains the rows so a human reply has an outbound message to thread
+  // against. The campaign stays flagged is_test, so nothing it accumulates can
+  // ever count toward real validation.
+  if (process.argv.includes('--keep')) {
+    console.log(`\n  RETAINED for inbound test: campaign=${campId} message=${msgId}`);
+    const failedKeep = checks.filter((c) => !c.ok);
+    console.log('\n' + '='.repeat(78));
+    console.log(`  ${checks.length - failedKeep.length}/${checks.length} checks passed`);
+    if (failedKeep.length > 0) process.exitCode = 1;
+    return;
+  }
 
   // Tear down so nothing counts toward validation.
   await db.query('DELETE FROM messages WHERE campaign_id = $1', [campId]);
