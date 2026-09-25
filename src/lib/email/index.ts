@@ -69,7 +69,11 @@ export class ResendProvider implements EmailProvider {
         ...(email.references ? { References: email.references } : {}),
       },
     };
-    if (email.replyTo) payload.replyTo = email.replyTo;
+    // Replies must land somewhere this system can actually read. With no public
+    // endpoint, that is the Resend inbound inbox, which the poller drains.
+    // Without it a prospect's answer goes to an address nobody monitors.
+    const replyTo = email.replyTo ?? (cfg.resendInboundAddress || undefined);
+    if (replyTo) payload.replyTo = replyTo;
     if (email.tags) {
       payload.tags = Object.entries(email.tags).map(([name, value]) => ({ name, value }));
     }

@@ -89,6 +89,12 @@ export interface Config {
   resendApiKey: string;
   resendWebhookSecret: string;
   resendInboundWebhookSecret: string;
+  /**
+   * The Resend-provided inbound inbox (…@…resend.app) used as Reply-To on
+   * validation email. Polling this is what removes the need for a public
+   * endpoint, a tunnel and custom-domain MX records.
+   */
+  resendInboundAddress: string;
 
   ownerName: string;
   ownerNotificationEmail: string;
@@ -269,6 +275,7 @@ function build(): Config {
     resendApiKey: str('RESEND_API_KEY'),
     resendWebhookSecret: str('RESEND_WEBHOOK_SECRET'),
     resendInboundWebhookSecret: str('RESEND_INBOUND_WEBHOOK_SECRET') || str('RESEND_WEBHOOK_SECRET'),
+    resendInboundAddress: str('RESEND_INBOUND_ADDRESS'),
 
     ownerName: str('OWNER_NAME'),
     ownerNotificationEmail: str('OWNER_NOTIFICATION_EMAIL'),

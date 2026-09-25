@@ -54,6 +54,7 @@ import {
 import { getBudgetReport, currentPeriod } from '../autonomy/budget';
 import { getRuntimeState, getSubsystemHealth } from '../autonomy/runtime';
 import { outreachPermitted } from '../autonomy/readiness';
+import { reconcileDelivery, pollInbound, inboundIsConfigured } from '../pipeline/outreach/polling';
 
 /** How many discovery query families one daily cadence may expand. */
 const DAILY_QUERY_EXPANSION_LIMIT = 5;
@@ -70,6 +71,9 @@ export const JOB_NAMES = [
   'daily_strategy',
   'weekly_retrospective',
   'monthly_maintenance',
+  // Polling replaces webhooks: no public endpoint, no tunnel, no ingress.
+  'reconcile_delivery',
+  'poll_inbound',
   'discover_opportunities',
   'verify_categories',
   'generate_wedges',
@@ -240,6 +244,32 @@ const JOBS: Record<JobName, JobFn> = {
     return { recordsProcessed: cleanup.recordsProcessed + dead.length, detail };
   },
 
+  /** Real delivery state, pulled from Resend. Never inferred locally. */
+  reconcile_delivery: async () => {
+    const res = await reconcileDelivery(100);
+    return {
+      recordsProcessed: res.updated,
+      detail: { ...res },
+    };
+  },
+
+  /**
+   * Real replies, pulled from the Resend inbox, threaded, classified and fed
+   * into the validation ladder. This is the half that makes validation
+   * possible at all: a system that cannot hear an answer cannot validate.
+   */
+  poll_inbound: async () => {
+    const configured = await inboundIsConfigured();
+    if (!configured.ok) {
+      throw new SafetyError(`poll_inbound blocked: ${configured.reason}`);
+    }
+    const res = await pollInbound(50);
+    return {
+      recordsProcessed: res.processed,
+      detail: { ...res },
+    };
+  },
+
   discover_opportunities: async () => {
     const cfg = getConfig();
     const res = await discoverOpportunities(cfg.discoveryCandidatesPerDay);
@@ -307,7 +337,10 @@ const JOBS: Record<JobName, JobFn> = {
     // send until a genuine Resend delivery event and a genuine inbound reply
     // have actually been seen, because a system that cannot hear an answer
     // cannot validate anything and should not be cold-emailing strangers.
-    const permitted = await outreachPermitted();
+    // A canary aimed at OWNER_TEST_EMAIL runs under the owner-test scope; the
+    // autonomous loop always runs under the full one.
+    const scope = process.env.OUTREACH_SCOPE === 'OWNER_TEST' ? 'OWNER_TEST' : 'REAL_PROSPECTS';
+    const permitted = await outreachPermitted(scope);
     if (!permitted.allowed) {
       throw new SafetyError(`send_due_messages blocked: ${permitted.reason}`);
     }

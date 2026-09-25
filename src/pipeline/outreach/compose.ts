@@ -189,6 +189,11 @@ export function buildFooter(email: string, cfg: Config, evidenceUrl: string | nu
       ? `Sent to ${normalizeEmail(email)} — a business address published at ${evidenceUrl}.`
       : `Sent to ${normalizeEmail(email)} — a publicly listed business address.`,
   );
+  // Reply-based opt-out. In this low-volume validation mode there is no public
+  // endpoint, so the link alone would be a dead promise; a reply is something
+  // the poller genuinely acts on within minutes. The signed link stays for
+  // clients that surface List-Unsubscribe.
+  lines.push("If you'd prefer I don't email you again, just reply \"unsubscribe\".");
   lines.push(`Unsubscribe in one click: ${buildUnsubscribeUrl(email)}`);
   return lines.join('\n');
 }

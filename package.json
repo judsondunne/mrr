@@ -29,7 +29,8 @@
     "providers:health": "tsx src/scripts/providers-health.ts",
     "discover:b2b": "tsx src/scripts/discover-b2b.ts",
     "deep:dive": "tsx src/scripts/deep-dive.ts",
-    "readiness": "tsx src/scripts/readiness.ts"
+    "readiness": "tsx src/scripts/readiness.ts",
+    "canary:polling": "tsx src/scripts/canary-polling.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.127.0",
